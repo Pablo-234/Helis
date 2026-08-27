@@ -8,10 +8,13 @@ from uuid import UUID
 from helis.domain import (
     AuditEvent,
     Experiment,
+    ExperimentRun,
     Observation,
     Opportunity,
     Scorecard,
     SkepticReport,
+    ValidationResult,
+    VentureDecision,
     utc_now,
 )
 
@@ -59,6 +62,35 @@ class HelisStore:
                     payload TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS experiment_runs (
+                    id TEXT PRIMARY KEY,
+                    experiment_id TEXT NOT NULL,
+                    opportunity_id TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_experiment_runs_experiment
+                    ON experiment_runs(experiment_id, updated_at);
+                CREATE TABLE IF NOT EXISTS validation_results (
+                    id TEXT PRIMARY KEY,
+                    run_id TEXT NOT NULL,
+                    experiment_id TEXT NOT NULL,
+                    opportunity_id TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_validation_results_opportunity
+                    ON validation_results(opportunity_id, created_at);
+                CREATE TABLE IF NOT EXISTS venture_decisions (
+                    id TEXT PRIMARY KEY,
+                    opportunity_id TEXT NOT NULL,
+                    decision TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    decided_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_venture_decisions_opportunity
+                    ON venture_decisions(opportunity_id, decided_at);
                 CREATE TABLE IF NOT EXISTS events (
                     seq INTEGER PRIMARY KEY AUTOINCREMENT,
                     id TEXT UNIQUE NOT NULL,
@@ -189,6 +221,13 @@ class HelisStore:
                 ),
             )
 
+    def get_experiment(self, experiment_id: UUID) -> Experiment | None:
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT payload FROM experiments WHERE id = ?", (str(experiment_id),)
+            ).fetchone()
+        return Experiment.model_validate_json(row["payload"]) if row else None
+
     def list_experiments(self, opportunity_id: UUID | None = None) -> list[Experiment]:
         with self.connect() as db:
             if opportunity_id is None:
@@ -199,6 +238,109 @@ class HelisStore:
                     (str(opportunity_id),),
                 ).fetchall()
         return [Experiment.model_validate_json(row["payload"]) for row in rows]
+
+    def save_experiment_run(self, run: ExperimentRun) -> None:
+        with self.connect() as db:
+            db.execute(
+                "INSERT OR REPLACE INTO experiment_runs "
+                "(id, experiment_id, opportunity_id, status, payload, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    str(run.id),
+                    str(run.experiment_id),
+                    str(run.opportunity_id),
+                    run.status.value,
+                    run.model_dump_json(),
+                    run.updated_at.isoformat(),
+                ),
+            )
+
+    def get_experiment_run(self, run_id: UUID) -> ExperimentRun | None:
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT payload FROM experiment_runs WHERE id = ?", (str(run_id),)
+            ).fetchone()
+        return ExperimentRun.model_validate_json(row["payload"]) if row else None
+
+    def list_experiment_runs(
+        self,
+        *,
+        opportunity_id: UUID | None = None,
+        experiment_id: UUID | None = None,
+    ) -> list[ExperimentRun]:
+        clauses: list[str] = []
+        params: list[str] = []
+        if opportunity_id is not None:
+            clauses.append("opportunity_id = ?")
+            params.append(str(opportunity_id))
+        if experiment_id is not None:
+            clauses.append("experiment_id = ?")
+            params.append(str(experiment_id))
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self.connect() as db:
+            rows = db.execute(
+                f"SELECT payload FROM experiment_runs{where} ORDER BY updated_at DESC",  # noqa: S608
+                params,
+            ).fetchall()
+        return [ExperimentRun.model_validate_json(row["payload"]) for row in rows]
+
+    def save_validation_result(self, result: ValidationResult) -> None:
+        with self.connect() as db:
+            db.execute(
+                "INSERT OR REPLACE INTO validation_results "
+                "(id, run_id, experiment_id, opportunity_id, payload, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    str(result.id),
+                    str(result.run_id),
+                    str(result.experiment_id),
+                    str(result.opportunity_id),
+                    result.model_dump_json(),
+                    result.created_at.isoformat(),
+                ),
+            )
+
+    def list_validation_results(self, opportunity_id: UUID | None = None) -> list[ValidationResult]:
+        with self.connect() as db:
+            if opportunity_id is None:
+                rows = db.execute(
+                    "SELECT payload FROM validation_results ORDER BY created_at ASC"
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    "SELECT payload FROM validation_results WHERE opportunity_id = ? "
+                    "ORDER BY created_at ASC",
+                    (str(opportunity_id),),
+                ).fetchall()
+        return [ValidationResult.model_validate_json(row["payload"]) for row in rows]
+
+    def save_venture_decision(self, decision: VentureDecision) -> None:
+        with self.connect() as db:
+            db.execute(
+                "INSERT OR REPLACE INTO venture_decisions "
+                "(id, opportunity_id, decision, payload, decided_at) VALUES (?, ?, ?, ?, ?)",
+                (
+                    str(decision.id),
+                    str(decision.opportunity_id),
+                    decision.decision.value,
+                    decision.model_dump_json(),
+                    decision.decided_at.isoformat(),
+                ),
+            )
+
+    def list_venture_decisions(self, opportunity_id: UUID | None = None) -> list[VentureDecision]:
+        with self.connect() as db:
+            if opportunity_id is None:
+                rows = db.execute(
+                    "SELECT payload FROM venture_decisions ORDER BY decided_at DESC"
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    "SELECT payload FROM venture_decisions WHERE opportunity_id = ? "
+                    "ORDER BY decided_at DESC",
+                    (str(opportunity_id),),
+                ).fetchall()
+        return [VentureDecision.model_validate_json(row["payload"]) for row in rows]
 
     def list_events(self, limit: int = 100) -> list[AuditEvent]:
         with self.connect() as db:
