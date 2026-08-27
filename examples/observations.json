@@ -1,0 +1,12 @@
+[
+  {
+    "text": "Synthetic fixture: a service company reports that inbound quote requests are copied manually from messages into a spreadsheet before anyone can estimate the work.",
+    "source": "synthetic://helis/demo/1",
+    "metadata": {"fixture": true}
+  },
+  {
+    "text": "Synthetic fixture: some prospects leave before receiving a reply because quote preparation can take until the next day.",
+    "source": "synthetic://helis/demo/2",
+    "metadata": {"fixture": true}
+  }
+]

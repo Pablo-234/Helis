@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import json
 import sqlite3
 from pathlib import Path
 from uuid import UUID
 
-from helis.domain import AuditEvent, Opportunity, Scorecard
+from helis.domain import AuditEvent, Observation, Opportunity, Scorecard
 
 
 class HelisStore:
@@ -21,6 +20,11 @@ class HelisStore:
         with self.connect() as db:
             db.executescript(
                 """
+                CREATE TABLE IF NOT EXISTS observations (
+                    id TEXT PRIMARY KEY,
+                    payload TEXT NOT NULL,
+                    captured_at TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS opportunities (
                     id TEXT PRIMARY KEY,
                     payload TEXT NOT NULL,
@@ -54,6 +58,20 @@ class HelisStore:
                     event.created_at.isoformat(),
                 ),
             )
+
+    def save_observation(self, observation: Observation) -> None:
+        with self.connect() as db:
+            db.execute(
+                "INSERT OR IGNORE INTO observations (id, payload, captured_at) VALUES (?, ?, ?)",
+                (str(observation.id), observation.model_dump_json(), observation.captured_at.isoformat()),
+            )
+
+    def list_observations(self, limit: int = 1000) -> list[Observation]:
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT payload FROM observations ORDER BY captured_at DESC LIMIT ?", (limit,)
+            ).fetchall()
+        return [Observation.model_validate_json(row["payload"]) for row in rows]
 
     def save_opportunity(self, opportunity: Opportunity) -> None:
         with self.connect() as db:

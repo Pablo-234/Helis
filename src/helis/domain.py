@@ -31,6 +31,16 @@ class Recommendation(StrEnum):
     KILL = "kill"
 
 
+class Observation(BaseModel):
+    """Raw external signal. This is evidence input, not a model inference."""
+
+    id: UUID = Field(default_factory=uuid4)
+    text: str = Field(min_length=3)
+    source: str = Field(min_length=1)
+    captured_at: datetime = Field(default_factory=utc_now)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class EvidenceKind(StrEnum):
     CUSTOMER_PAIN = "customer_pain"
     WORKFLOW = "workflow"
@@ -47,6 +57,7 @@ class Evidence(BaseModel):
     kind: EvidenceKind
     claim: str = Field(min_length=3)
     source: str = Field(min_length=1)
+    observation_id: UUID | None = None
     confidence: float = Field(default=0.5, ge=0, le=1)
     observed_at: datetime = Field(default_factory=utc_now)
 

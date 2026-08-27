@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from helis.domain import AuditEvent, Opportunity, Scorecard, ScoreDimensions, VentureStage
+from helis.domain import AuditEvent, Observation, Opportunity, Scorecard, ScoreDimensions, VentureStage
 from helis.scoring import score_opportunity
 from helis.store import HelisStore
 
@@ -17,6 +17,17 @@ class HelisEngine:
     def __init__(self, store: HelisStore) -> None:
         self.store = store
         self.store.initialize()
+
+    def observe(self, observation: Observation) -> Observation:
+        self.store.save_observation(observation)
+        self.store.append_event(
+            AuditEvent(
+                event_type="market.observed",
+                entity_id=observation.id,
+                data={"source": observation.source},
+            )
+        )
+        return observation
 
     def ingest(self, opportunity: Opportunity) -> Opportunity:
         self.store.save_opportunity(opportunity)
