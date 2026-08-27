@@ -65,7 +65,7 @@ class HackerNewsSource:
 
         ids = self._get_json(f"{_BASE_URL}/{endpoint}.json")
         if not isinstance(ids, list):
-            raise ValueError("Hacker News feed returned an unexpected payload")
+            raise TypeError("Hacker News feed returned an unexpected payload")
         selected = ids[: max(0, self.limit)]
 
         with ThreadPoolExecutor(max_workers=max(1, min(self.max_workers, 16))) as executor:

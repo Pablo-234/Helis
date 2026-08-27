@@ -91,7 +91,8 @@ class SourceRegistry:
             try:
                 for observation in self._build(spec).scan():
                     deduplicated[observation.id] = observation
-            except Exception as exc:  # source isolation is deliberate at this boundary
+            # Source adapters are an isolation boundary: a third-party adapter must not kill a scan.
+            except Exception as exc:  # noqa: BLE001
                 output.failures.append(ScanFailure(spec.name, f"{type(exc).__name__}: {exc}"))
         output.observations = list(deduplicated.values())
         return output
