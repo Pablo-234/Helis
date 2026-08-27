@@ -10,14 +10,7 @@ from rich.table import Table
 
 from helis.budget import CycleBudget
 from helis.cycle import CycleReport, HelisCycle
-from helis.domain import (
-    ExperimentRunStatus,
-    Observation,
-    Opportunity,
-    ScoreDimensions,
-    ValidationResult,
-    utc_now,
-)
+from helis.domain import Observation, Opportunity, ScoreDimensions, ValidationResult
 from helis.engine import HelisEngine
 from helis.model_provider import OpenAICompatibleProvider
 from helis.policy import AutonomyPolicy
@@ -26,6 +19,7 @@ from helis.source_registry import RegistryScanResult, SourceRegistry
 from helis.sources import GitHubIssuesSource, RSSSource
 from helis.store import HelisStore
 from helis.validation_execution import ValidationBudget, ValidationRunner
+from helis.validation_gateway import ApprovedValidationGateway
 from helis.validation_machine import ValidationMachine, ValidationTickReport
 
 app = typer.Typer(help="HELIS autonomous venture engine")
@@ -42,6 +36,10 @@ def configured_budget(max_calls: int, max_tokens: int, max_cost_cents: float) ->
         max_tokens=max_tokens,
         max_cost_cents=max_cost_cents,
     )
+
+
+def configured_gateway() -> ApprovedValidationGateway | None:
+    return ApprovedValidationGateway.from_env()
 
 
 def _save_observations(helis: HelisEngine, observations: list[Observation]) -> None:
@@ -92,13 +90,20 @@ def _print_validation_tick(report: ValidationTickReport) -> None:
         return
     console.print(
         f"validation-exec: venture={report.opportunity_id} "
-        f"waiting_approval={report.waiting_approval} blocked={report.blocked} "
+        f"waiting_approval={report.waiting_approval} "
+        f"waiting_result={report.waiting_result} blocked={report.blocked} "
         f"model_budget_exhausted={report.model_budget_exhausted}"
     )
     if report.run is not None:
         console.print(
             f"run={report.run.id} status={report.run.status.value} "
-            f"adapter={report.run.adapter or '-'} cost={report.run.actual_cost_cents:.3f}¢"
+            f"adapter={report.run.adapter or '-'} external_ref={report.run.external_ref or '-'} "
+            f"cost={report.run.actual_cost_cents:.3f}¢"
+        )
+    if report.execution is not None and report.execution.dispatch is not None:
+        console.print(
+            f"[magenta]dispatched[/] {report.execution.dispatch.dispatch_id} "
+            f"via {report.execution.dispatch.channel}"
         )
     if report.result is not None:
         console.print(
@@ -215,8 +220,9 @@ def validate(
     max_calls: int = 3,
     max_tokens: int = 35_000,
     max_cost_cents: float = 10.0,
+    validation_cash_cents: float = 0.0,
 ) -> None:
-    """Execute one safe validation step, decide, and plan a follow-up if needed."""
+    """Execute one validation step under explicit model and cash budgets."""
     helis = engine(db)
     provider = OpenAICompatibleProvider.from_env()
     budget = configured_budget(max_calls, max_tokens, max_cost_cents)
@@ -224,12 +230,17 @@ def validate(
         helis,
         provider,
         budget,
-        validation_budget=ValidationBudget(max_executions=1, max_cash_cents=0),
+        validation_budget=ValidationBudget(
+            max_executions=1,
+            max_cash_cents=validation_cash_cents,
+        ),
+        external_gateway=configured_gateway(),
     ).tick(UUID(opportunity_id) if opportunity_id else None)
     _print_validation_tick(report)
     console.print(
         f"validation usage: calls={budget.model_calls}/{budget.max_model_calls} "
-        f"tokens={budget.tokens}/{budget.max_tokens} cost≈{budget.cost_cents:.3f}¢"
+        f"tokens={budget.tokens}/{budget.max_tokens} cost≈{budget.cost_cents:.3f}¢ "
+        f"cash_cap={validation_cash_cents:.2f}¢"
     )
 
 
@@ -242,27 +253,41 @@ def approve_run(run_id: str, db: Path = Path("helis.db")) -> None:
 
 
 @app.command("record-result")
-def record_result(path: Path, db: Path = Path("helis.db")) -> None:
-    """Ingest a result produced by an external/manual validation adapter."""
+def record_result(
+    path: Path,
+    db: Path = Path("helis.db"),
+    max_calls: int = 2,
+    max_tokens: int = 20_000,
+    max_cost_cents: float = 5.0,
+) -> None:
+    """Complete a dispatched external run, then immediately reconcile the venture."""
     helis = engine(db)
     result = ValidationResult.model_validate_json(path.read_text(encoding="utf-8"))
-    helis.record_validation_result(result)
-    run = helis.store.get_experiment_run(result.run_id)
-    if run is not None and run.status != ExperimentRunStatus.COMPLETED:
-        completed = run.model_copy(
-            update={
-                "status": ExperimentRunStatus.COMPLETED,
-                "completed_at": utc_now(),
-                "actual_cost_cents": result.actual_cost_cents,
-                "error": None,
-                "updated_at": utc_now(),
-            }
-        )
-        helis.record_experiment_run(completed, event_type="experiment.completed_external")
+    completed = ValidationRunner(helis, AutonomyPolicy()).complete_external(result)
     console.print(
-        f"recorded validation result {result.id}: {result.outcome.value} "
-        f"confidence={result.confidence:.2f}"
+        f"recorded result {result.id}: {result.outcome.value} confidence={result.confidence:.2f}; "
+        f"run={completed.id} completed"
     )
+
+    provider = OpenAICompatibleProvider.from_env()
+    budget = configured_budget(max_calls, max_tokens, max_cost_cents)
+    report = ValidationMachine(
+        helis,
+        provider,
+        budget,
+        external_gateway=configured_gateway(),
+    ).tick(result.opportunity_id)
+    _print_validation_tick(report)
+
+
+@app.command("gateway-status")
+def gateway_status() -> None:
+    """Show whether the approved external validation gateway is configured."""
+    gateway = configured_gateway()
+    if gateway is None:
+        console.print("validation gateway: [yellow]not configured[/]")
+        return
+    console.print(f"validation gateway: [green]configured[/] → {gateway.safe_destination}")
 
 
 @app.command()
@@ -294,6 +319,7 @@ def run(
         provider,
         budget,
         validation_budget=ValidationBudget(max_executions=1, max_cash_cents=0),
+        external_gateway=configured_gateway(),
     ).tick(report.validation_opportunity_id)
     _print_validation_tick(validation_report)
     console.print(
