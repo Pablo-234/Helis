@@ -19,7 +19,11 @@ OBSERVE → DISCOVER → HYPOTHESIZE → EVALUATE → FALSIFY
                          ↓
             ADVANCE / CONTINUE / PIVOT / KILL
                          ↓
-                 BUILD if validated
+                    VALIDATED
+                         ↓
+             PLAN → BUILD → VERIFY
+                         ↓
+                TESTED LOCAL MVP
 ```
 
 ## What works now
@@ -31,19 +35,21 @@ HELIS can:
 - score candidates with deterministic, inspectable arithmetic,
 - challenge promising candidates with a skeptic pass,
 - design cheap falsification experiments,
-- persist experiment execution as a resumable state machine,
 - execute zero-cash desk research against its real observation corpus,
-- reject model conclusions that cite evidence IDs it did not actually receive,
 - autonomously plan one follow-up test when evidence is insufficient,
 - make deterministic **advance / continue / pivot / kill** decisions,
 - require multiple independent positive experiment types before a venture becomes `validated`,
-- kill strongly falsified ventures before product development,
 - dispatch approved interview/pricing experiments through a separately configured HTTPS validation gateway,
-- keep external dispatch asynchronous with a persisted `waiting_result` state,
-- prevent duplicate external sends with the run ID as an idempotency key,
-- require explicit approval on every gateway-backed run even if a model incorrectly says contact is unnecessary,
+- keep external dispatch asynchronous and idempotent,
 - enforce model-call, token, cash and duration limits,
-- retain an append-only audit trail in SQLite.
+- convert a validated venture into a bounded MVP BuildSpec,
+- generate a file-only MVP bundle under path/type/size allowlists,
+- write each build into an isolated per-venture/per-run workspace,
+- hash every generated file and persist a bundle digest,
+- verify static web builds without executing their JavaScript,
+- verify Python stdlib builds only inside a fixed Docker sandbox with networking disabled,
+- refuse to run generated Python on the host if Docker or the sandbox image is unavailable,
+- persist build state and append build events to the audit trail.
 
 ## Quick start
 
@@ -72,6 +78,15 @@ helis run
 
 `helis run` scans markets, performs discovery/evaluation/falsification, plans experiments and executes one safe validation step. The default validation cash budget is **zero**.
 
+When a venture reaches `validated`, the builder can pick it up without a manually supplied product idea:
+
+```bash
+helis build
+helis build-status
+```
+
+`helis build` plans the smallest MVP, generates only allowed files, creates an isolated workspace and runs the fixed verifier for the selected runtime. It does **not** deploy the product.
+
 ## Approved external validation gateway
 
 HELIS never lets the model choose a customer-contact endpoint or credentials. The operator can optionally configure one HTTPS gateway:
@@ -82,39 +97,24 @@ HELIS_VALIDATION_GATEWAY_TOKEN=...
 helis gateway-status
 ```
 
-The gateway can be a narrow service, n8n/Make workflow, or another controlled integration that performs the actual interview/pricing action. HELIS sends a versioned JSON payload containing the approved run, experiment, venture and hard cost/duration constraints. It also sends the `ExperimentRun.id` as an `Idempotency-Key`.
-
-A customer-facing run follows this flow:
+The gateway can be a narrow service, n8n/Make workflow, or another controlled integration that performs the actual interview/pricing action. HELIS sends the persisted run ID as an idempotency key and waits asynchronously for a real result.
 
 ```text
-planned
-  ↓
-waiting_approval
-  ↓  helis approve-run <RUN_ID>
-ready
-  ↓  helis validate
-running
-  ↓ gateway accepts dispatch
-waiting_result
-  ↓ result arrives
-completed
-  ↓
-advance / continue / pivot / kill
-```
-
-The gateway destination must use HTTPS. Plain HTTP is accepted only for localhost development when `HELIS_ALLOW_INSECURE_LOCAL_GATEWAY=1` is explicitly set.
-
-Useful commands:
-
-```bash
-helis validate --validation-cash-cents 0
-helis approve-run <RUN_ID>
-helis record-result result.json
-helis gateway-status
-helis rank
+planned → waiting_approval → ready → running → waiting_result → completed
 ```
 
 `approve-run` approves exactly one persisted run. It does **not** weaken the global policy or approve future experiments.
+
+## Builder safety
+
+The model never chooses a shell command. Builder v0 accepts only two runtimes:
+
+- `static_web` — local HTML/CSS/JS bundle, verified offline without JavaScript execution.
+- `python_stdlib` — Python standard library only, with `unittest` tests executed by a fixed command inside Docker.
+
+Python sandbox verification uses a read-only container, no network, all capabilities dropped, `no-new-privileges`, PID/memory/CPU limits, an unprivileged user and a read-only workspace mount. HELIS does not auto-pull images during a build and has no host-execution fallback.
+
+Generated files cannot escape their workspace and cannot include `.env`, `.git`, `.github`, `.ssh`, package-install manifests, binary/NUL content, unsupported extensions or arbitrary file counts/sizes. See `docs/BUILDER.md`.
 
 ## Decision safety
 
@@ -125,7 +125,7 @@ The model can summarize evidence and propose tests. It does **not** own the fina
 - **PIVOT**: credible adjacent evidence with confidence >= 0.6 while the current hypothesis remains weak.
 - **CONTINUE**: not enough evidence yet; HELIS may design one next information-gaining test.
 
-ADVANCE means `validated`, not `building`. Product construction is a separate capability boundary.
+ADVANCE means `validated`. The Builder separately claims the venture into `building`.
 
 ## Design principles
 
@@ -140,6 +140,8 @@ ADVANCE means `validated`, not `building`. Product construction is a separate ca
 
 ## Current boundary
 
-HELIS can now perform its validation loop and has a controlled external execution bridge. Native channel integrations (direct email/SMS/social/forms), autonomous deployment, financial transactions and product building are still separate future capabilities.
+HELIS can now progress from market observations to a **validated venture and a locally tested MVP workspace**. It still does not autonomously publish/deploy that MVP to the public internet, access production credentials, install arbitrary packages, or transact money.
 
-See `docs/ROADMAP.md` and `docs/VALIDATION.md`.
+The next Phase 2 slice is bounded repair/self-review, followed by a separately gated ephemeral preview deployment.
+
+See `docs/ROADMAP.md`, `docs/VALIDATION.md`, and `docs/BUILDER.md`.
