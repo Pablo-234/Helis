@@ -1,0 +1,15 @@
+{
+  "title": "Synthetic example: repetitive quote preparation",
+  "problem": "A small service business repeatedly prepares similar quotes manually and responds slowly to inbound requests.",
+  "customer": "small service businesses",
+  "proposed_value": "Reduce response time and manual quote preparation while keeping human approval for final pricing.",
+  "tags": ["demo", "workflow", "b2b"],
+  "evidence": [
+    {
+      "kind": "workflow",
+      "claim": "This is synthetic demo evidence used only to exercise the HELIS pipeline.",
+      "source": "HELIS example fixture",
+      "confidence": 0.1
+    }
+  ]
+}
