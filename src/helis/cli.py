@@ -9,11 +9,12 @@ from rich.console import Console
 from rich.table import Table
 
 from helis.budget import CycleBudget
-from helis.cycle import HelisCycle
+from helis.cycle import CycleReport, HelisCycle
 from helis.domain import Observation, Opportunity, ScoreDimensions
 from helis.engine import HelisEngine
 from helis.model_provider import OpenAICompatibleProvider
 from helis.scout import OpportunityScout
+from helis.source_registry import RegistryScanResult, SourceRegistry
 from helis.sources import GitHubIssuesSource, RSSSource
 from helis.store import HelisStore
 
@@ -39,6 +40,40 @@ def _save_observations(helis: HelisEngine, observations: list[Observation]) -> N
         helis.observe(observation)
     after = len(helis.store.list_observations())
     console.print(f"scan: fetched={len(observations)} new={after - before}")
+
+
+def _print_scan_failures(result: RegistryScanResult) -> None:
+    for failure in result.failures:
+        console.print(f"[yellow]source failed[/] {failure.source_name}: {failure.error}")
+
+
+def _print_cycle_report(report: CycleReport, budget: CycleBudget) -> None:
+    console.print(
+        f"cycle: observations={report.observations_used} "
+        f"discovered={report.candidates_discovered} evaluated={report.candidates_evaluated} "
+        f"budget_exhausted={report.budget_exhausted}"
+    )
+    console.print(
+        f"validation: target={report.validation_opportunity_id or '-'} "
+        f"experiments={report.experiments_planned} "
+        f"autonomous={report.executable_experiments} "
+        f"approval_required={report.approval_required_experiments}"
+    )
+    console.print(
+        f"usage: calls={budget.model_calls}/{budget.max_model_calls} "
+        f"tokens={budget.tokens}/{budget.max_tokens} cost≈{budget.cost_cents:.3f}¢"
+    )
+    _print_ranked(report.ranked)
+    if report.validation_reviews:
+        table = Table("Priority", "Autonomous", "Cost cap", "Experiment")
+        for review in report.validation_reviews:
+            table.add_row(
+                f"{review.priority:.2f}",
+                "yes" if review.executable else "approval",
+                f"{review.experiment.max_cost_cents}¢",
+                review.experiment.title,
+            )
+        console.print(table)
 
 
 @app.command()
@@ -76,6 +111,17 @@ def scan_github(
         helis,
         GitHubIssuesSource(repository=repository, state=state, limit=limit).scan(),
     )
+
+
+@app.command("scan-config")
+def scan_config(
+    config: Path = Path("helis.toml"),
+    db: Path = Path("helis.db"),
+) -> None:
+    helis = engine(db)
+    result = SourceRegistry.from_toml(config).scan()
+    _save_observations(helis, result.observations)
+    _print_scan_failures(result)
 
 
 @app.command()
@@ -116,32 +162,32 @@ def cycle(
         observation_limit=observation_limit,
         candidate_limit=candidate_limit,
     )
-    console.print(
-        f"cycle: observations={report.observations_used} "
-        f"discovered={report.candidates_discovered} evaluated={report.candidates_evaluated} "
-        f"budget_exhausted={report.budget_exhausted}"
+    _print_cycle_report(report, budget)
+
+
+@app.command()
+def run(
+    config: Path = Path("helis.toml"),
+    db: Path = Path("helis.db"),
+    observation_limit: int = 100,
+    candidate_limit: int = 5,
+    max_calls: int = 8,
+    max_tokens: int = 40_000,
+    max_cost_cents: float = 25.0,
+) -> None:
+    """Scan configured markets, then run one bounded venture cycle."""
+    helis = engine(db)
+    scan_result = SourceRegistry.from_toml(config).scan()
+    _save_observations(helis, scan_result.observations)
+    _print_scan_failures(scan_result)
+
+    provider = OpenAICompatibleProvider.from_env()
+    budget = configured_budget(max_calls, max_tokens, max_cost_cents)
+    report = HelisCycle(helis, provider, budget).run(
+        observation_limit=observation_limit,
+        candidate_limit=candidate_limit,
     )
-    console.print(
-        f"validation: target={report.validation_opportunity_id or '-'} "
-        f"experiments={report.experiments_planned} "
-        f"autonomous={report.executable_experiments} "
-        f"approval_required={report.approval_required_experiments}"
-    )
-    console.print(
-        f"usage: calls={budget.model_calls}/{budget.max_model_calls} "
-        f"tokens={budget.tokens}/{budget.max_tokens} cost≈{budget.cost_cents:.3f}¢"
-    )
-    _print_ranked(report.ranked)
-    if report.validation_reviews:
-        table = Table("Priority", "Autonomous", "Cost cap", "Experiment")
-        for review in report.validation_reviews:
-            table.add_row(
-                f"{review.priority:.2f}",
-                "yes" if review.executable else "approval",
-                f"{review.experiment.max_cost_cents}¢",
-                review.experiment.title,
-            )
-        console.print(table)
+    _print_cycle_report(report, budget)
 
 
 @app.command()

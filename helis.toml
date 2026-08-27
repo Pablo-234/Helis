@@ -1,0 +1,14 @@
+# Safe default market sources for HELIS.
+# No credentials and no commercial-restricted Reddit ingestion.
+
+[[sources]]
+name = "HN Ask"
+kind = "hacker_news"
+feed = "ask"
+limit = 40
+
+[[sources]]
+name = "HN Show"
+kind = "hacker_news"
+feed = "show"
+limit = 30
