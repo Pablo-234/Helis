@@ -1,0 +1,31 @@
+# HELIS market eyes.
+# Copy to helis.toml and add/remove sources. One failing source does not stop the others.
+
+[[sources]]
+name = "HN Ask"
+kind = "hacker_news"
+feed = "ask"
+limit = 40
+
+[[sources]]
+name = "HN Show"
+kind = "hacker_news"
+feed = "show"
+limit = 30
+
+# Example public GitHub issue stream. Enable only for repositories relevant to a market thesis.
+[[sources]]
+name = "Example GitHub issues"
+kind = "github_issues"
+repository = "owner/repository"
+state = "open"
+limit = 30
+enabled = false
+
+# RSS/Atom sources are useful for industry-specific complaints, changelogs, forums and news.
+[[sources]]
+name = "Example RSS"
+kind = "rss"
+url = "https://example.com/feed.xml"
+limit = 30
+enabled = false
