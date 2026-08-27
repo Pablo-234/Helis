@@ -54,16 +54,8 @@ def _relevant_observations(
     limit: int,
 ) -> list[Observation]:
     query = _tokens(
-        " ".join(
-            [
-                opportunity.title,
-                opportunity.problem,
-                opportunity.customer,
-                opportunity.proposed_value,
-                experiment.hypothesis,
-                experiment.success_metric,
-            ]
-        )
+        f"{opportunity.title} {opportunity.problem} {opportunity.customer} "
+        f"{opportunity.proposed_value} {experiment.hypothesis} {experiment.success_metric}"
     )
     ranked = sorted(
         observations,
