@@ -4,10 +4,12 @@ from dataclasses import dataclass
 
 from helis.domain import (
     AuditEvent,
+    Experiment,
     Observation,
     Opportunity,
     Scorecard,
     ScoreDimensions,
+    SkepticReport,
     VentureStage,
 )
 from helis.scoring import score_opportunity
@@ -65,6 +67,37 @@ class HelisEngine:
             )
         )
         return scorecard
+
+    def record_skeptic_report(self, report: SkepticReport) -> None:
+        self.store.save_skeptic_report(report)
+        self.store.append_event(
+            AuditEvent(
+                event_type="opportunity.challenged",
+                entity_id=report.opportunity_id,
+                data={
+                    "assumption_count": len(report.assumptions),
+                    "max_assumption_risk": report.max_assumption_risk,
+                },
+            )
+        )
+
+    def plan_experiment(self, experiment: Experiment, *, executable: bool) -> None:
+        self.store.save_experiment(experiment)
+        opportunity = self.store.get_opportunity(experiment.opportunity_id)
+        if opportunity is not None:
+            validating = opportunity.model_copy(update={"stage": VentureStage.VALIDATING})
+            self.store.save_opportunity(validating)
+        self.store.append_event(
+            AuditEvent(
+                event_type="experiment.planned",
+                entity_id=experiment.id,
+                data={
+                    "opportunity_id": str(experiment.opportunity_id),
+                    "max_cost_cents": experiment.max_cost_cents,
+                    "executable": executable,
+                },
+            )
+        )
 
     def ranked_queue(self) -> list[RankedOpportunity]:
         opportunities = {item.id: item for item in self.store.list_opportunities()}

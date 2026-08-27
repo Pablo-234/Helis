@@ -103,16 +103,57 @@ class Scorecard(BaseModel):
     scored_at: datetime = Field(default_factory=utc_now)
 
 
+class Assumption(BaseModel):
+    statement: str = Field(min_length=5)
+    failure_mode: str = Field(min_length=5)
+    falsifier: str = Field(min_length=5)
+    criticality: float = Field(ge=0, le=10)
+    uncertainty: float = Field(ge=0, le=10)
+
+    @property
+    def risk(self) -> float:
+        return round(self.criticality * self.uncertainty / 10, 2)
+
+
+class SkepticReport(BaseModel):
+    opportunity_id: UUID
+    assumptions: list[Assumption] = Field(default_factory=list)
+    contradictions: list[str] = Field(default_factory=list)
+    missing_evidence: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=utc_now)
+
+    @property
+    def max_assumption_risk(self) -> float:
+        return max((assumption.risk for assumption in self.assumptions), default=0.0)
+
+
+class ExperimentType(StrEnum):
+    DESK_RESEARCH = "desk_research"
+    INTERVIEW = "interview"
+    SMOKE_TEST = "smoke_test"
+    PRICING = "pricing"
+    CONCIERGE = "concierge"
+    PROTOTYPE = "prototype"
+    SALES = "sales"
+    OTHER = "other"
+
+
 class Experiment(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     opportunity_id: UUID
-    hypothesis: str
-    success_metric: str
-    success_threshold: str
+    title: str = Field(min_length=3)
+    experiment_type: ExperimentType
+    hypothesis: str = Field(min_length=5)
+    success_metric: str = Field(min_length=3)
+    success_threshold: str = Field(min_length=2)
+    targeted_assumptions: list[int] = Field(default_factory=list)
+    expected_information_gain: float = Field(default=5, ge=0, le=10)
+    effort_score: float = Field(default=5, ge=0, le=10)
     max_cost_cents: int = Field(default=0, ge=0)
     max_duration_hours: int = Field(default=24, ge=1)
     requires_external_contact: bool = False
     requires_publication: bool = False
+    created_at: datetime = Field(default_factory=utc_now)
 
 
 class AuditEvent(BaseModel):

@@ -4,7 +4,7 @@ import sqlite3
 from pathlib import Path
 from uuid import UUID
 
-from helis.domain import AuditEvent, Observation, Opportunity, Scorecard
+from helis.domain import AuditEvent, Experiment, Observation, Opportunity, Scorecard, SkepticReport
 
 
 class HelisStore:
@@ -34,6 +34,17 @@ class HelisStore:
                     opportunity_id TEXT PRIMARY KEY,
                     payload TEXT NOT NULL,
                     scored_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS skeptic_reports (
+                    opportunity_id TEXT PRIMARY KEY,
+                    payload TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS experiments (
+                    id TEXT PRIMARY KEY,
+                    opportunity_id TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    created_at TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS events (
                     seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -109,6 +120,45 @@ class HelisStore:
             rows = db.execute("SELECT payload FROM scorecards").fetchall()
         cards = [Scorecard.model_validate_json(row["payload"]) for row in rows]
         return sorted(cards, key=lambda card: card.total, reverse=True)
+
+    def save_skeptic_report(self, report: SkepticReport) -> None:
+        with self.connect() as db:
+            db.execute(
+                "INSERT OR REPLACE INTO skeptic_reports (opportunity_id, payload, created_at) VALUES (?, ?, ?)",
+                (str(report.opportunity_id), report.model_dump_json(), report.created_at.isoformat()),
+            )
+
+    def get_skeptic_report(self, opportunity_id: UUID) -> SkepticReport | None:
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT payload FROM skeptic_reports WHERE opportunity_id = ?",
+                (str(opportunity_id),),
+            ).fetchone()
+        return SkepticReport.model_validate_json(row["payload"]) if row else None
+
+    def save_experiment(self, experiment: Experiment) -> None:
+        with self.connect() as db:
+            db.execute(
+                "INSERT OR REPLACE INTO experiments (id, opportunity_id, payload, created_at) "
+                "VALUES (?, ?, ?, ?)",
+                (
+                    str(experiment.id),
+                    str(experiment.opportunity_id),
+                    experiment.model_dump_json(),
+                    experiment.created_at.isoformat(),
+                ),
+            )
+
+    def list_experiments(self, opportunity_id: UUID | None = None) -> list[Experiment]:
+        with self.connect() as db:
+            if opportunity_id is None:
+                rows = db.execute("SELECT payload FROM experiments ORDER BY created_at DESC").fetchall()
+            else:
+                rows = db.execute(
+                    "SELECT payload FROM experiments WHERE opportunity_id = ? ORDER BY created_at DESC",
+                    (str(opportunity_id),),
+                ).fetchall()
+        return [Experiment.model_validate_json(row["payload"]) for row in rows]
 
     def list_events(self, limit: int = 100) -> list[AuditEvent]:
         with self.connect() as db:
