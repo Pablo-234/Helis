@@ -122,10 +122,26 @@ def cycle(
         f"budget_exhausted={report.budget_exhausted}"
     )
     console.print(
+        f"validation: target={report.validation_opportunity_id or '-'} "
+        f"experiments={report.experiments_planned} "
+        f"autonomous={report.executable_experiments} "
+        f"approval_required={report.approval_required_experiments}"
+    )
+    console.print(
         f"usage: calls={budget.model_calls}/{budget.max_model_calls} "
         f"tokens={budget.tokens}/{budget.max_tokens} cost≈{budget.cost_cents:.3f}¢"
     )
     _print_ranked(report.ranked)
+    if report.validation_reviews:
+        table = Table("Priority", "Autonomous", "Cost cap", "Experiment")
+        for review in report.validation_reviews:
+            table.add_row(
+                f"{review.priority:.2f}",
+                "yes" if review.executable else "approval",
+                f"{review.experiment.max_cost_cents}¢",
+                review.experiment.title,
+            )
+        console.print(table)
 
 
 @app.command()
