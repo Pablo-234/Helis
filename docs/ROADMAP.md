@@ -43,20 +43,32 @@ Exit criterion: met for an operator-triggered cycle. Scheduled waking remains an
 
 Exit criterion: met at the transport layer when an approved validation gateway is configured. HELIS can execute a real external validation action without granting blanket contact permission, persist the asynchronous run, ingest the result and decide what to do next. Native channel adapters remain optional refinements.
 
-## Phase 2 — Builder (next)
+## Phase 2 — Builder (current)
 
-- [ ] isolated per-venture workspaces
-- [ ] build manifest / bounded product brief
-- [ ] builder adapter interface
-- [ ] generated-code sandbox
-- [ ] test-before-preview requirement
-- [ ] preview deployments
+- [x] isolated per-venture/per-run workspaces
+- [x] build manifest with per-file hashes and bundle digest
+- [x] bounded BuildSpec product brief
+- [x] provider-independent planner/generator boundary
+- [x] generated-file allowlist + path/size limits
+- [x] offline static-web verifier
+- [x] Python stdlib Docker sandbox with network disabled
+- [x] no host fallback if Docker/image is unavailable
+- [x] fixed verifier commands; model cannot provide shell commands
+- [x] test-before-preview requirement
+- [x] builder model-call/token/cost budget integration
+- [x] explicit promotion from `validated` → `building`
+- [x] persisted build runs and audit events
+- [x] `helis build` / `helis build-status`
+- [ ] automated repair loop after failed verification
+- [ ] self-review + adversarial build review
 - [ ] reusable venture templates
-- [ ] self-review + adversarial review
-- [ ] builder budget and stop conditions
-- [ ] explicit promotion from `validated` → `building`
+- [ ] preview deployment adapter
+- [ ] preview policy gate / expiry
+- [ ] automatic preview smoke checks
 
-Exit criterion: a validated venture can become a constrained, tested preview MVP without modifying the HELIS core or silently deploying to production.
+Current milestone: a validated venture can become a constrained, locally verified MVP workspace without modifying HELIS core or silently deploying anything.
+
+Exit criterion for full Phase 2: a tested build can be promoted to an isolated preview deployment with a bounded lifetime and no production credentials.
 
 ## Phase 3 — Go-to-market
 
