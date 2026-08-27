@@ -5,7 +5,7 @@ from uuid import UUID
 
 from helis.analyst import OpportunityAnalyst
 from helis.budget import BudgetExceeded, CycleBudget
-from helis.domain import Recommendation
+from helis.domain import Opportunity, Recommendation, VentureStage
 from helis.engine import HelisEngine, RankedOpportunity
 from helis.experiment_designer import ExperimentDesigner
 from helis.model_provider import ModelProvider
@@ -39,7 +39,7 @@ class CycleReport:
 
 
 class HelisCycle:
-    """One bounded venture cycle: evidence -> candidates -> score -> falsify -> experiments."""
+    """One resumable bounded cycle: new evidence -> score -> falsify -> experiment plan."""
 
     def __init__(
         self,
@@ -57,48 +57,76 @@ class HelisCycle:
         self.experiment_designer = ExperimentDesigner(provider, self.budget)
 
     def run(self, *, observation_limit: int = 100, candidate_limit: int = 5) -> CycleReport:
-        observations = self.engine.store.list_observations(limit=observation_limit)
-        if not observations:
-            return CycleReport(0, 0, 0, False, self.engine.ranked_queue())
-
-        candidates = self.scout.discover(observations)[:candidate_limit]
-        for candidate in candidates:
-            self.engine.ingest(candidate)
-
-        evaluated = 0
+        observations = self.engine.store.list_unprocessed_observations(limit=observation_limit)
+        generated_count = 0
         exhausted = False
-        local_scores: list[tuple[float, Recommendation, object]] = []
-        for candidate in candidates:
+
+        if observations:
+            try:
+                generated = self.scout.discover(observations)
+            except BudgetExceeded:
+                return CycleReport(
+                    len(observations),
+                    0,
+                    0,
+                    True,
+                    self.engine.ranked_queue(),
+                )
+            generated_count = len(generated)
+            for candidate in generated:
+                self.engine.ingest(candidate)
+            self.engine.store.mark_observations_processed(item.id for item in observations)
+
+        pending = [
+            opportunity
+            for opportunity in self.engine.store.list_opportunities()
+            if opportunity.stage == VentureStage.DISCOVERED
+        ]
+        evaluation_candidates = pending[:candidate_limit]
+        evaluated = 0
+        for candidate in evaluation_candidates:
             try:
                 assessment = self.analyst.assess(candidate)
             except BudgetExceeded:
                 exhausted = True
                 break
-            scorecard = self.engine.evaluate(candidate, assessment.dimensions)
-            local_scores.append((scorecard.total, scorecard.recommendation, candidate))
+            self.engine.evaluate(candidate, assessment.dimensions)
             evaluated += 1
 
-        validation_target = None
+        validation_target = self._next_validation_target()
         validation_reviews: list[ExperimentReview] = []
-        viable = [item for item in local_scores if item[1] != Recommendation.KILL]
-        if viable and not exhausted:
-            _, _, validation_target = max(viable, key=lambda item: item[0])
+        if validation_target is not None and not exhausted:
+            skeptic_report = self.engine.store.get_skeptic_report(validation_target.id)
             try:
-                skeptic_report = self.skeptic.review(validation_target)
-                self.engine.record_skeptic_report(skeptic_report)
-                experiments = self.experiment_designer.design(validation_target, skeptic_report)
-                validation_reviews = rank_experiments(experiments, self.policy)
-                for review in validation_reviews:
-                    self.engine.plan_experiment(review.experiment, executable=review.executable)
+                if skeptic_report is None:
+                    skeptic_report = self.skeptic.review(validation_target)
+                    self.engine.record_skeptic_report(skeptic_report)
+
+                if not self.engine.store.list_experiments(validation_target.id):
+                    experiments = self.experiment_designer.design(validation_target, skeptic_report)
+                    validation_reviews = rank_experiments(experiments, self.policy)
+                    for review in validation_reviews:
+                        self.engine.plan_experiment(review.experiment, executable=review.executable)
             except BudgetExceeded:
                 exhausted = True
 
         return CycleReport(
             observations_used=len(observations),
-            candidates_discovered=len(candidates),
+            candidates_discovered=generated_count,
             candidates_evaluated=evaluated,
             budget_exhausted=exhausted,
             ranked=self.engine.ranked_queue(),
             validation_opportunity_id=validation_target.id if validation_target is not None else None,
             validation_reviews=validation_reviews,
         )
+
+    def _next_validation_target(self) -> Opportunity | None:
+        for item in self.engine.ranked_queue():
+            if item.opportunity.stage != VentureStage.EVALUATED:
+                continue
+            if item.scorecard.recommendation == Recommendation.KILL:
+                continue
+            if self.engine.store.list_experiments(item.opportunity.id):
+                continue
+            return item.opportunity
+        return None

@@ -1,10 +1,19 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterable
 from pathlib import Path
 from uuid import UUID
 
-from helis.domain import AuditEvent, Experiment, Observation, Opportunity, Scorecard, SkepticReport
+from helis.domain import (
+    AuditEvent,
+    Experiment,
+    Observation,
+    Opportunity,
+    Scorecard,
+    SkepticReport,
+    utc_now,
+)
 
 
 class HelisStore:
@@ -24,6 +33,10 @@ class HelisStore:
                     id TEXT PRIMARY KEY,
                     payload TEXT NOT NULL,
                     captured_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS processed_observations (
+                    observation_id TEXT PRIMARY KEY,
+                    processed_at TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS opportunities (
                     id TEXT PRIMARY KEY,
@@ -84,6 +97,33 @@ class HelisStore:
                 "SELECT payload FROM observations ORDER BY captured_at DESC LIMIT ?", (limit,)
             ).fetchall()
         return [Observation.model_validate_json(row["payload"]) for row in rows]
+
+    def list_unprocessed_observations(self, limit: int = 1000) -> list[Observation]:
+        with self.connect() as db:
+            rows = db.execute(
+                """
+                SELECT observations.payload
+                FROM observations
+                LEFT JOIN processed_observations
+                    ON processed_observations.observation_id = observations.id
+                WHERE processed_observations.observation_id IS NULL
+                ORDER BY observations.captured_at ASC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [Observation.model_validate_json(row["payload"]) for row in rows]
+
+    def mark_observations_processed(self, observation_ids: Iterable[UUID]) -> None:
+        processed_at = utc_now().isoformat()
+        rows = [(str(observation_id), processed_at) for observation_id in observation_ids]
+        if not rows:
+            return
+        with self.connect() as db:
+            db.executemany(
+                "INSERT OR IGNORE INTO processed_observations (observation_id, processed_at) VALUES (?, ?)",
+                rows,
+            )
 
     def save_opportunity(self, opportunity: Opportunity) -> None:
         with self.connect() as db:
