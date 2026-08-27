@@ -59,7 +59,7 @@ def test_external_contact_waits_for_approval(tmp_path) -> None:
     assert runs[0].status == ExperimentRunStatus.WAITING_APPROVAL
 
 
-def test_desk_research_executes_and_binds_observation(tmp_path) -> None:
+def test_desk_research_executes_decides_and_plans_follow_up(tmp_path) -> None:
     engine = HelisEngine(HelisStore(tmp_path / "helis.db"))
     observation = Observation(
         text="Operators complain that manual quoting takes hours every week.",
@@ -93,13 +93,31 @@ def test_desk_research_executes_and_binds_observation(tmp_path) -> None:
                 "supporting_observation_ids": [str(observation.id)],
                 "metrics": {"pain_signals": 1},
                 "pivot_signal": None,
-            }
+            },
+            {
+                "experiment": {
+                    "opportunity_id": str(opportunity.id),
+                    "title": "Test willingness to pay",
+                    "experiment_type": "pricing",
+                    "hypothesis": "Operators will accept a paid offer for faster quoting.",
+                    "success_metric": "paid offer acceptances",
+                    "success_threshold": "1",
+                    "targeted_assumptions": [],
+                    "expected_information_gain": 9,
+                    "effort_score": 4,
+                    "max_cost_cents": 0,
+                    "max_duration_hours": 24,
+                    "requires_external_contact": True,
+                    "requires_publication": False,
+                },
+                "reason": "Pain is supported, but willingness to pay remains untested.",
+            },
         ]
     )
     machine = ValidationMachine(
         engine,
         provider,
-        CycleBudget(max_model_calls=2),
+        CycleBudget(max_model_calls=3),
         validation_budget=ValidationBudget(max_cash_cents=0),
     )
     report = machine.tick(opportunity.id)
@@ -111,6 +129,8 @@ def test_desk_research_executes_and_binds_observation(tmp_path) -> None:
     assert report.run.status == ExperimentRunStatus.COMPLETED
     assert report.decision is not None
     assert report.decision.decision == VentureDecisionKind.CONTINUE
+    assert report.follow_up_planned is not None
+    assert report.follow_up_planned.experiment_type == ExperimentType.PRICING
 
 
 def test_decision_engine_kills_strongly_falsified_venture() -> None:

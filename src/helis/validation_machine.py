@@ -7,16 +7,20 @@ from helis.budget import BudgetExceeded, CycleBudget
 from helis.decision import VentureDecisionEngine
 from helis.desk_research import DeskResearchExecutor
 from helis.domain import (
+    Experiment,
     ExperimentRun,
     ExperimentRunStatus,
     ExperimentType,
     ValidationResult,
     VentureDecision,
+    VentureDecisionKind,
     VentureStage,
 )
 from helis.engine import HelisEngine
+from helis.followup import FollowUpDesigner
 from helis.model_provider import ModelProvider
 from helis.policy import AutonomyPolicy
+from helis.validation import review_experiment
 from helis.validation_execution import ExecutionOutcome, ValidationBudget, ValidationRunner
 
 
@@ -25,6 +29,7 @@ class ValidationTickReport:
     opportunity_id: UUID | None
     execution: ExecutionOutcome | None = None
     decision: VentureDecision | None = None
+    follow_up_planned: Experiment | None = None
     waiting_approval: int = 0
     blocked: int = 0
     model_budget_exhausted: bool = False
@@ -59,6 +64,7 @@ class ValidationMachine:
             executors={ExperimentType.DESK_RESEARCH: desk},
         )
         self.decider = VentureDecisionEngine()
+        self.follow_up_designer = FollowUpDesigner(provider, model_budget)
 
     def tick(self, opportunity_id: UUID | None = None) -> ValidationTickReport:
         target = self._target(opportunity_id)
@@ -73,11 +79,28 @@ class ValidationMachine:
             exhausted = True
 
         decision = self.decide_if_changed(target.id)
+        effective_decision = decision
+        if effective_decision is None:
+            previous = self.engine.store.list_venture_decisions(target.id)
+            effective_decision = previous[0] if previous else None
+
+        follow_up: Experiment | None = None
+        if (
+            not exhausted
+            and effective_decision is not None
+            and effective_decision.decision == VentureDecisionKind.CONTINUE
+        ):
+            try:
+                follow_up = self._plan_follow_up_if_needed(target.id)
+            except BudgetExceeded:
+                exhausted = True
+
         runs = self.engine.store.list_experiment_runs(opportunity_id=target.id)
         return ValidationTickReport(
             opportunity_id=target.id,
             execution=execution,
             decision=decision,
+            follow_up_planned=follow_up,
             waiting_approval=sum(
                 item.status == ExperimentRunStatus.WAITING_APPROVAL for item in runs
             ),
@@ -103,6 +126,41 @@ class ValidationMachine:
         )
         self.engine.record_venture_decision(decision)
         return decision
+
+    def _plan_follow_up_if_needed(self, opportunity_id: UUID) -> Experiment | None:
+        opportunity = self.engine.store.get_opportunity(opportunity_id)
+        if opportunity is None:
+            return None
+        results = self.engine.store.list_validation_results(opportunity_id)
+        if not results:
+            return None
+        experiments = self.engine.store.list_experiments(opportunity_id)
+        runs = self.engine.store.list_experiment_runs(opportunity_id=opportunity_id)
+        latest_by_experiment: dict[UUID, ExperimentRun] = {}
+        for run in runs:
+            latest_by_experiment.setdefault(run.experiment_id, run)
+
+        active_statuses = {
+            ExperimentRunStatus.PLANNED,
+            ExperimentRunStatus.READY,
+            ExperimentRunStatus.RUNNING,
+            ExperimentRunStatus.WAITING_APPROVAL,
+        }
+        if any(run.status in active_statuses for run in latest_by_experiment.values()):
+            return None
+        if any(item.id not in latest_by_experiment for item in experiments):
+            return None
+
+        latest_result_at = max(item.created_at for item in results)
+        if any(item.created_at > latest_result_at for item in experiments):
+            return None
+
+        experiment = self.follow_up_designer.design(opportunity, experiments, results)
+        if experiment is None:
+            return None
+        review = review_experiment(experiment, self.policy)
+        self.engine.plan_experiment(experiment, executable=review.executable)
+        return experiment
 
     def _target(self, opportunity_id: UUID | None):
         if opportunity_id is not None:

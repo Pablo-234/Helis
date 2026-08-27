@@ -35,9 +35,9 @@ Exit criterion: met for an operator-triggered cycle. Scheduled waking remains an
 - [x] run-scoped approval state
 - [x] explicit advance / continue / pivot / kill decisions
 - [x] deterministic decision thresholds outside the model
-- [ ] automatic follow-up experiment generation after inconclusive evidence
+- [x] automatic follow-up experiment generation after inconclusive/insufficient evidence
 
-Exit criterion: HELIS can already reject a strongly falsified idea using real-world collected evidence without building a product. Full Phase 1 exit additionally requires at least one live customer-facing validation adapter and automatic follow-up planning.
+Exit criterion: HELIS can already reject a strongly falsified idea using real-world collected evidence and autonomously plan the next information-gaining test when evidence is insufficient. Full Phase 1 exit additionally requires at least one live customer-facing validation adapter.
 
 ## Phase 2 — Builder
 

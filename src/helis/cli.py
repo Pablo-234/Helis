@@ -112,6 +112,11 @@ def _print_validation_tick(report: ValidationTickReport) -> None:
         )
         if report.decision.suggested_pivot:
             console.print(f"pivot → {report.decision.suggested_pivot}")
+    if report.follow_up_planned is not None:
+        console.print(
+            f"[cyan]follow-up planned[/] {report.follow_up_planned.experiment_type.value}: "
+            f"{report.follow_up_planned.title}"
+        )
 
 
 @app.command()
@@ -207,11 +212,11 @@ def cycle(
 def validate(
     db: Path = Path("helis.db"),
     opportunity_id: str | None = None,
-    max_calls: int = 2,
-    max_tokens: int = 25_000,
+    max_calls: int = 3,
+    max_tokens: int = 35_000,
     max_cost_cents: float = 10.0,
 ) -> None:
-    """Execute one safe validation step and update the venture decision."""
+    """Execute one safe validation step, decide, and plan a follow-up if needed."""
     helis = engine(db)
     provider = OpenAICompatibleProvider.from_env()
     budget = configured_budget(max_calls, max_tokens, max_cost_cents)
