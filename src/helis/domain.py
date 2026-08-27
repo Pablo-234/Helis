@@ -162,6 +162,7 @@ class ExperimentRunStatus(StrEnum):
     WAITING_APPROVAL = "waiting_approval"
     READY = "ready"
     RUNNING = "running"
+    WAITING_RESULT = "waiting_result"
     COMPLETED = "completed"
     FAILED = "failed"
     BLOCKED = "blocked"
@@ -175,12 +176,20 @@ class ExperimentRun(BaseModel):
     status: ExperimentRunStatus = ExperimentRunStatus.PLANNED
     adapter: str | None = None
     approval_granted: bool = False
+    external_ref: str | None = None
     attempt: int = Field(default=1, ge=1)
     started_at: datetime | None = None
     completed_at: datetime | None = None
     error: str | None = None
     actual_cost_cents: float = Field(default=0, ge=0)
     updated_at: datetime = Field(default_factory=utc_now)
+
+
+class ExternalDispatch(BaseModel):
+    dispatch_id: str = Field(min_length=1, max_length=300)
+    channel: str = Field(default="validation_gateway", min_length=1, max_length=100)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    accepted_at: datetime = Field(default_factory=utc_now)
 
 
 class ValidationOutcome(StrEnum):
