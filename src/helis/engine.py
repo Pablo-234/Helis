@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from helis.dedup import find_duplicate, merge_opportunities
 from helis.domain import (
     AuditEvent,
     Experiment,
     Observation,
     Opportunity,
+    Recommendation,
     Scorecard,
     ScoreDimensions,
     SkepticReport,
@@ -23,8 +25,9 @@ class RankedOpportunity:
 
 
 class HelisEngine:
-    def __init__(self, store: HelisStore) -> None:
+    def __init__(self, store: HelisStore, *, duplicate_threshold: float = 0.72) -> None:
         self.store = store
+        self.duplicate_threshold = duplicate_threshold
         self.store.initialize()
 
     def observe(self, observation: Observation) -> Observation:
@@ -40,6 +43,28 @@ class HelisEngine:
         return observation
 
     def ingest(self, opportunity: Opportunity) -> Opportunity:
+        duplicate = find_duplicate(
+            opportunity,
+            self.store.list_opportunities(),
+            threshold=self.duplicate_threshold,
+        )
+        if duplicate is not None:
+            existing, similarity = duplicate
+            merged = merge_opportunities(existing, opportunity)
+            self.store.save_opportunity(merged)
+            self.store.append_event(
+                AuditEvent(
+                    event_type="opportunity.reinforced",
+                    entity_id=existing.id,
+                    data={
+                        "candidate_id": str(opportunity.id),
+                        "similarity": similarity,
+                        "evidence_count": len(merged.evidence),
+                    },
+                )
+            )
+            return merged
+
         self.store.save_opportunity(opportunity)
         self.store.append_event(
             AuditEvent(
@@ -54,7 +79,12 @@ class HelisEngine:
         scorecard = score_opportunity(opportunity, dimensions)
         self.store.save_scorecard(scorecard)
 
-        evaluated = opportunity.model_copy(update={"stage": VentureStage.EVALUATED})
+        stage = (
+            VentureStage.KILLED
+            if scorecard.recommendation == Recommendation.KILL
+            else VentureStage.EVALUATED
+        )
+        evaluated = opportunity.model_copy(update={"stage": stage})
         self.store.save_opportunity(evaluated)
         self.store.append_event(
             AuditEvent(
@@ -63,6 +93,7 @@ class HelisEngine:
                 data={
                     "score": scorecard.total,
                     "recommendation": scorecard.recommendation.value,
+                    "stage": stage.value,
                 },
             )
         )
