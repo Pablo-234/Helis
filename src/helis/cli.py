@@ -9,6 +9,7 @@ from rich.console import Console
 from rich.table import Table
 
 from helis.budget import CycleBudget
+from helis.cycle import HelisCycle
 from helis.domain import Observation, Opportunity, ScoreDimensions
 from helis.engine import HelisEngine
 from helis.model_provider import OpenAICompatibleProvider
@@ -21,6 +22,14 @@ console = Console()
 
 def engine(db: Path) -> HelisEngine:
     return HelisEngine(HelisStore(db))
+
+
+def configured_budget(max_calls: int, max_tokens: int, max_cost_cents: float) -> CycleBudget:
+    return CycleBudget(
+        max_model_calls=max_calls,
+        max_tokens=max_tokens,
+        max_cost_cents=max_cost_cents,
+    )
 
 
 @app.command()
@@ -51,11 +60,7 @@ def scout(
     helis = engine(db)
     observations = helis.store.list_observations(limit=limit)
     provider = OpenAICompatibleProvider.from_env()
-    budget = CycleBudget(
-        max_model_calls=max_calls,
-        max_tokens=max_tokens,
-        max_cost_cents=max_cost_cents,
-    )
+    budget = configured_budget(max_calls, max_tokens, max_cost_cents)
     discovered = OpportunityScout(provider, budget).discover(observations)
     for opportunity in discovered:
         helis.ingest(opportunity)
@@ -64,6 +69,34 @@ def scout(
         f"scout cycle: {len(discovered)} candidates, {budget.model_calls} model calls, "
         f"{budget.tokens} tokens, ~{budget.cost_cents:.3f}¢ configured model cost"
     )
+
+
+@app.command()
+def cycle(
+    db: Path = Path("helis.db"),
+    observation_limit: int = 100,
+    candidate_limit: int = 5,
+    max_calls: int = 8,
+    max_tokens: int = 40_000,
+    max_cost_cents: float = 25.0,
+) -> None:
+    helis = engine(db)
+    provider = OpenAICompatibleProvider.from_env()
+    budget = configured_budget(max_calls, max_tokens, max_cost_cents)
+    report = HelisCycle(helis, provider, budget).run(
+        observation_limit=observation_limit,
+        candidate_limit=candidate_limit,
+    )
+    console.print(
+        f"cycle: observations={report.observations_used} "
+        f"discovered={report.candidates_discovered} evaluated={report.candidates_evaluated} "
+        f"budget_exhausted={report.budget_exhausted}"
+    )
+    console.print(
+        f"usage: calls={budget.model_calls}/{budget.max_model_calls} "
+        f"tokens={budget.tokens}/{budget.max_tokens} cost≈{budget.cost_cents:.3f}¢"
+    )
+    _print_ranked(report.ranked)
 
 
 @app.command()
@@ -92,9 +125,7 @@ def evaluate(
     console.print(f"score={card.total:.2f} recommendation={card.recommendation.value}")
 
 
-@app.command()
-def rank(db: Path = Path("helis.db")) -> None:
-    ranked = engine(db).ranked_queue()
+def _print_ranked(ranked: list) -> None:
     table = Table("Score", "Decision", "Customer", "Opportunity")
     for item in ranked:
         table.add_row(
@@ -104,6 +135,11 @@ def rank(db: Path = Path("helis.db")) -> None:
             item.opportunity.title,
         )
     console.print(table)
+
+
+@app.command()
+def rank(db: Path = Path("helis.db")) -> None:
+    _print_ranked(engine(db).ranked_queue())
 
 
 if __name__ == "__main__":
