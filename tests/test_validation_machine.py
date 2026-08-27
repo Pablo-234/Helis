@@ -48,7 +48,7 @@ def test_external_contact_waits_for_approval(tmp_path) -> None:
         experiment_type=ExperimentType.INTERVIEW,
         hypothesis="Operators will confirm the bottleneck is costly.",
         success_metric="confirmed interviews",
-        success_threshold="3",
+        success_threshold=">= 3",
         requires_external_contact=True,
     )
     engine.plan_experiment(experiment, executable=False)
@@ -80,7 +80,7 @@ def test_desk_research_executes_decides_and_plans_follow_up(tmp_path) -> None:
         experiment_type=ExperimentType.DESK_RESEARCH,
         hypothesis="Manual quoting is a recurring pain.",
         success_metric="independent pain signals",
-        success_threshold="1",
+        success_threshold=">= 1",
         max_cost_cents=0,
     )
     engine.plan_experiment(experiment, executable=True)
@@ -101,7 +101,7 @@ def test_desk_research_executes_decides_and_plans_follow_up(tmp_path) -> None:
                     "experiment_type": "pricing",
                     "hypothesis": "Operators will accept a paid offer for faster quoting.",
                     "success_metric": "paid offer acceptances",
-                    "success_threshold": "1",
+                    "success_threshold": ">= 1",
                     "targeted_assumptions": [],
                     "expected_information_gain": 9,
                     "effort_score": 4,
@@ -146,7 +146,7 @@ def test_decision_engine_kills_strongly_falsified_venture() -> None:
         experiment_type=ExperimentType.DESK_RESEARCH,
         hypothesis="The problem appears repeatedly.",
         success_metric="signals",
-        success_threshold="1",
+        success_threshold=">= 1",
     )
     result = ValidationResult(
         run_id=experiment.id,
@@ -173,7 +173,7 @@ def test_decision_engine_advances_only_with_independent_positive_tests() -> None
         experiment_type=ExperimentType.DESK_RESEARCH,
         hypothesis="Pain exists.",
         success_metric="signals",
-        success_threshold="2",
+        success_threshold=">= 2",
     )
     pricing = Experiment(
         opportunity_id=opportunity.id,
@@ -181,7 +181,7 @@ def test_decision_engine_advances_only_with_independent_positive_tests() -> None
         experiment_type=ExperimentType.PRICING,
         hypothesis="Customers accept a paid offer.",
         success_metric="acceptance",
-        success_threshold="1",
+        success_threshold=">= 1",
     )
     results = [
         ValidationResult(
