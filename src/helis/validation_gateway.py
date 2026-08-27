@@ -9,7 +9,7 @@ from urllib.request import Request, urlopen
 
 from pydantic import BaseModel, Field
 
-from helis.domain import ExternalDispatch, Experiment, ExperimentRun, Opportunity
+from helis.domain import Experiment, ExperimentRun, ExternalDispatch, Opportunity
 
 
 class GatewayConfigurationError(ValueError):
