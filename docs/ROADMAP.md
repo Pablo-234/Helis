@@ -19,15 +19,19 @@
 - [x] experiment designer
 - [x] policy-aware experiment ranking
 
-Exit criterion: met for an operator-triggered cycle. Scheduled waking remains an infrastructure enhancement rather than a prerequisite for Phase 1.
+Exit criterion: met for an operator-triggered cycle. Scheduled waking remains an infrastructure enhancement.
 
-## Phase 1 — Validation machine (current)
+## Phase 1 — Validation machine
 
 - [x] experiment execution state machine
 - [x] desk-research validation adapter over real observation corpus
-- [ ] interview adapter
-- [ ] pricing adapter
-- [ ] smoke-test adapter
+- [x] approved HTTPS external validation gateway for interview/pricing transport
+- [x] asynchronous `waiting_result` state
+- [x] idempotent external dispatch
+- [x] executor-level forced approval independent of model flags
+- [ ] native direct interview channel adapter
+- [ ] native direct pricing channel adapter
+- [ ] smoke-test publication adapter
 - [ ] concierge adapter
 - [x] validation execution/cash budget
 - [x] automatic result ingestion for built-in adapters
@@ -35,19 +39,24 @@ Exit criterion: met for an operator-triggered cycle. Scheduled waking remains an
 - [x] run-scoped approval state
 - [x] explicit advance / continue / pivot / kill decisions
 - [x] deterministic decision thresholds outside the model
-- [x] automatic follow-up experiment generation after inconclusive/insufficient evidence
+- [x] automatic follow-up experiment generation after insufficient evidence
 
-Exit criterion: HELIS can already reject a strongly falsified idea using real-world collected evidence and autonomously plan the next information-gaining test when evidence is insufficient. Full Phase 1 exit additionally requires at least one live customer-facing validation adapter.
+Exit criterion: met at the transport layer when an approved validation gateway is configured. HELIS can execute a real external validation action without granting blanket contact permission, persist the asynchronous run, ingest the result and decide what to do next. Native channel adapters remain optional refinements.
 
-## Phase 2 — Builder
+## Phase 2 — Builder (next)
 
-- [ ] isolated code workspaces
-- [ ] test-before-deploy requirement
+- [ ] isolated per-venture workspaces
+- [ ] build manifest / bounded product brief
+- [ ] builder adapter interface
+- [ ] generated-code sandbox
+- [ ] test-before-preview requirement
 - [ ] preview deployments
 - [ ] reusable venture templates
 - [ ] self-review + adversarial review
+- [ ] builder budget and stop conditions
+- [ ] explicit promotion from `validated` → `building`
 
-Exit criterion: validated ideas can become constrained MVPs without editing HELIS core.
+Exit criterion: a validated venture can become a constrained, tested preview MVP without modifying the HELIS core or silently deploying to production.
 
 ## Phase 3 — Go-to-market
 
