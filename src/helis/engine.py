@@ -6,12 +6,16 @@ from helis.dedup import find_duplicate, merge_opportunities
 from helis.domain import (
     AuditEvent,
     Experiment,
+    ExperimentRun,
     Observation,
     Opportunity,
     Recommendation,
     Scorecard,
     ScoreDimensions,
     SkepticReport,
+    ValidationResult,
+    VentureDecision,
+    VentureDecisionKind,
     VentureStage,
 )
 from helis.scoring import score_opportunity
@@ -126,6 +130,65 @@ class HelisEngine:
                     "opportunity_id": str(experiment.opportunity_id),
                     "max_cost_cents": experiment.max_cost_cents,
                     "executable": executable,
+                },
+            )
+        )
+
+    def record_experiment_run(self, run: ExperimentRun, *, event_type: str) -> None:
+        self.store.save_experiment_run(run)
+        self.store.append_event(
+            AuditEvent(
+                event_type=event_type,
+                entity_id=run.id,
+                data={
+                    "experiment_id": str(run.experiment_id),
+                    "opportunity_id": str(run.opportunity_id),
+                    "status": run.status.value,
+                    "adapter": run.adapter,
+                    "error": run.error,
+                },
+            )
+        )
+
+    def record_validation_result(self, result: ValidationResult) -> None:
+        self.store.save_validation_result(result)
+        self.store.append_event(
+            AuditEvent(
+                event_type="validation.result",
+                entity_id=result.id,
+                data={
+                    "experiment_id": str(result.experiment_id),
+                    "opportunity_id": str(result.opportunity_id),
+                    "outcome": result.outcome.value,
+                    "confidence": result.confidence,
+                    "source": result.source,
+                    "actual_cost_cents": result.actual_cost_cents,
+                },
+            )
+        )
+
+    def record_venture_decision(self, decision: VentureDecision) -> None:
+        self.store.save_venture_decision(decision)
+        opportunity = self.store.get_opportunity(decision.opportunity_id)
+        stage_by_decision = {
+            VentureDecisionKind.ADVANCE: VentureStage.VALIDATED,
+            VentureDecisionKind.CONTINUE: VentureStage.VALIDATING,
+            VentureDecisionKind.PIVOT: VentureStage.PIVOTED,
+            VentureDecisionKind.KILL: VentureStage.KILLED,
+        }
+        stage = stage_by_decision[decision.decision]
+        if opportunity is not None:
+            self.store.save_opportunity(opportunity.model_copy(update={"stage": stage}))
+        self.store.append_event(
+            AuditEvent(
+                event_type="venture.decision",
+                entity_id=decision.opportunity_id,
+                data={
+                    "decision_id": str(decision.id),
+                    "decision": decision.decision.value,
+                    "confidence": decision.confidence,
+                    "stage": stage.value,
+                    "suggested_pivot": decision.suggested_pivot,
                 },
             )
         )

@@ -16,6 +16,7 @@ class VentureStage(StrEnum):
     DISCOVERED = "discovered"
     EVALUATED = "evaluated"
     VALIDATING = "validating"
+    VALIDATED = "validated"
     BUILDING = "building"
     LAUNCHED = "launched"
     MEASURING = "measuring"
@@ -154,6 +155,72 @@ class Experiment(BaseModel):
     requires_external_contact: bool = False
     requires_publication: bool = False
     created_at: datetime = Field(default_factory=utc_now)
+
+
+class ExperimentRunStatus(StrEnum):
+    PLANNED = "planned"
+    WAITING_APPROVAL = "waiting_approval"
+    READY = "ready"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    BLOCKED = "blocked"
+    CANCELLED = "cancelled"
+
+
+class ExperimentRun(BaseModel):
+    id: UUID = Field(default_factory=uuid4)
+    experiment_id: UUID
+    opportunity_id: UUID
+    status: ExperimentRunStatus = ExperimentRunStatus.PLANNED
+    adapter: str | None = None
+    approval_granted: bool = False
+    attempt: int = Field(default=1, ge=1)
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    error: str | None = None
+    actual_cost_cents: float = Field(default=0, ge=0)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class ValidationOutcome(StrEnum):
+    POSITIVE = "positive"
+    NEGATIVE = "negative"
+    INCONCLUSIVE = "inconclusive"
+
+
+class ValidationResult(BaseModel):
+    id: UUID = Field(default_factory=uuid4)
+    run_id: UUID
+    experiment_id: UUID
+    opportunity_id: UUID
+    outcome: ValidationOutcome
+    confidence: float = Field(ge=0, le=1)
+    summary: str = Field(min_length=3)
+    supporting_observation_ids: list[UUID] = Field(default_factory=list)
+    metrics: dict[str, float] = Field(default_factory=dict)
+    pivot_signal: str | None = None
+    source: str = Field(default="unknown", min_length=1)
+    actual_cost_cents: float = Field(default=0, ge=0)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class VentureDecisionKind(StrEnum):
+    ADVANCE = "advance"
+    CONTINUE = "continue"
+    PIVOT = "pivot"
+    KILL = "kill"
+
+
+class VentureDecision(BaseModel):
+    id: UUID = Field(default_factory=uuid4)
+    opportunity_id: UUID
+    decision: VentureDecisionKind
+    confidence: float = Field(ge=0, le=1)
+    rationale: list[str] = Field(default_factory=list)
+    result_ids: list[UUID] = Field(default_factory=list)
+    suggested_pivot: str | None = None
+    decided_at: datetime = Field(default_factory=utc_now)
 
 
 class AuditEvent(BaseModel):
