@@ -35,7 +35,7 @@ class OpenAICompatibleProvider:
     output_cost_per_million_tokens: float = 0.0
 
     @classmethod
-    def from_env(cls) -> "OpenAICompatibleProvider":
+    def from_env(cls) -> OpenAICompatibleProvider:
         base_url = os.getenv("HELIS_LLM_BASE_URL", "http://localhost:11434/v1")
         model = os.getenv("HELIS_LLM_MODEL", "qwen3.5:9b")
         return cls(
@@ -67,7 +67,7 @@ class OpenAICompatibleProvider:
             headers=headers,
             method="POST",
         )
-        with urlopen(request, timeout=self.timeout_seconds) as response:  # noqa: S310
+        with urlopen(request, timeout=self.timeout_seconds) as response:
             body = json.loads(response.read().decode("utf-8"))
 
         content = body["choices"][0]["message"]["content"]

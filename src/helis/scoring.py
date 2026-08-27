@@ -1,7 +1,11 @@
 from __future__ import annotations
 
-from helis.domain import Opportunity, Recommendation, Scorecard, ScoreDimensions
-
+from helis.domain import (
+    Opportunity,
+    Recommendation,
+    Scorecard,
+    ScoreDimensions,
+)
 
 WEIGHTS: dict[str, float] = {
     "pain": 0.15,
@@ -36,11 +40,11 @@ def score_opportunity(
 
     rationale: list[str] = []
     strongest = max(
-        (k for k in values if k != "execution_risk"),
+        (key for key in values if key != "execution_risk"),
         key=lambda key: values[key],
     )
     weakest = min(
-        (k for k in values if k != "execution_risk"),
+        (key for key in values if key != "execution_risk"),
         key=lambda key: values[key],
     )
     rationale.append(f"strongest_dimension={strongest}:{values[strongest]:.1f}")

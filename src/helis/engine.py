@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from helis.domain import AuditEvent, Observation, Opportunity, Scorecard, ScoreDimensions, VentureStage
+from helis.domain import (
+    AuditEvent,
+    Observation,
+    Opportunity,
+    Scorecard,
+    ScoreDimensions,
+    VentureStage,
+)
 from helis.scoring import score_opportunity
 from helis.store import HelisStore
 

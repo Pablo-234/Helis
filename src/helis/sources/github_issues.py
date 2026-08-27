@@ -37,7 +37,7 @@ class GitHubIssuesSource:
         if token:
             headers["Authorization"] = f"Bearer {token}"
         request = Request(url, headers=headers)
-        with urlopen(request, timeout=self.timeout_seconds) as response:  # noqa: S310
+        with urlopen(request, timeout=self.timeout_seconds) as response:
             payload = json.loads(response.read().decode("utf-8"))
         return parse_issues(payload, self.repository, self.limit)
 
@@ -52,7 +52,11 @@ def parse_issues(payload: list[dict], repository: str, limit: int = 50) -> list[
         body = str(item.get("body") or "").strip()
         if not issue_id or not (title or body):
             continue
-        labels = [label.get("name", "") for label in item.get("labels", []) if isinstance(label, dict)]
+        labels = [
+            label.get("name", "")
+            for label in item.get("labels", [])
+            if isinstance(label, dict)
+        ]
         observations.append(
             Observation(
                 id=stable_observation_id(f"github:{repository}", issue_id),

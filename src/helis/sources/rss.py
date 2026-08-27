@@ -28,7 +28,7 @@ class RSSSource:
 
     def scan(self) -> list[Observation]:
         request = Request(self.url, headers={"User-Agent": "HELIS/0.1 market-research-agent"})
-        with urlopen(request, timeout=self.timeout_seconds) as response:  # noqa: S310
+        with urlopen(request, timeout=self.timeout_seconds) as response:
             payload = response.read()
         return parse_feed(payload, self.url, self.limit)
 
@@ -80,7 +80,8 @@ def parse_feed(payload: bytes | str, feed_url: str, limit: int = 50) -> list[Obs
                 metadata={
                     "source_type": "atom",
                     "feed_url": feed_url,
-                    "published": _text(entry.find("{*}published")) or _text(entry.find("{*}updated")),
+                    "published": _text(entry.find("{*}published"))
+                    or _text(entry.find("{*}updated")),
                 },
             )
         )
