@@ -10,12 +10,14 @@
 - [x] evidence-bound opportunity scout
 - [x] evidence-bound venture analyst
 - [x] one bounded observe → discover → evaluate cycle
-- [ ] automatic source adapters
+- [x] RSS + GitHub issue source adapters
+- [ ] source registry / scheduled scanning
 - [ ] duplicate/opportunity clustering
-- [ ] skeptic pass / contradictory evidence search
-- [ ] experiment designer
+- [x] skeptic pass / falsifiable assumptions
+- [x] experiment designer
+- [x] policy-aware experiment ranking
 
-Exit criterion: HELIS independently produces a ranked queue whose rationale can be traced back to raw observations.
+Exit criterion: HELIS independently produces a ranked queue whose rationale can be traced back to raw observations and proposes a cheapest-first falsification plan for the best viable candidate.
 
 ## Phase 1 — Validation machine
 
