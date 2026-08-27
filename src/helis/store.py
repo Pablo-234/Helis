@@ -277,11 +277,9 @@ class HelisStore:
             clauses.append("experiment_id = ?")
             params.append(str(experiment_id))
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        query = "SELECT payload FROM experiment_runs" + where + " ORDER BY updated_at DESC"
         with self.connect() as db:
-            rows = db.execute(
-                f"SELECT payload FROM experiment_runs{where} ORDER BY updated_at DESC",  # noqa: S608
-                params,
-            ).fetchall()
+            rows = db.execute(query, params).fetchall()
         return [ExperimentRun.model_validate_json(row["payload"]) for row in rows]
 
     def save_validation_result(self, result: ValidationResult) -> None:
