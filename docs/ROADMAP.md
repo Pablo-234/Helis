@@ -9,23 +9,26 @@
 - [x] bounded model-call/token/cost budget
 - [x] evidence-bound opportunity scout
 - [x] evidence-bound venture analyst
-- [x] one bounded observe → discover → evaluate cycle
-- [x] RSS + GitHub issue source adapters
-- [ ] source registry / scheduled scanning
-- [ ] duplicate/opportunity clustering
+- [x] bounded observe → discover → evaluate cycle
+- [x] RSS + GitHub issue + Hacker News source adapters
+- [x] configurable source registry
+- [ ] scheduled scanning / wake policy
+- [x] processed-observation cursor / no-work zero-call cycles
+- [x] duplicate/opportunity clustering baseline
 - [x] skeptic pass / falsifiable assumptions
 - [x] experiment designer
 - [x] policy-aware experiment ranking
 
-Exit criterion: HELIS independently produces a ranked queue whose rationale can be traced back to raw observations and proposes a cheapest-first falsification plan for the best viable candidate.
+Exit criterion: HELIS independently produces a ranked queue whose rationale can be traced back to raw observations, does not repeatedly pay to process old signals, and proposes a cheapest-first falsification plan for the best viable candidate.
 
 ## Phase 1 — Validation machine
 
-- experiment hypotheses and success criteria
-- landing-page / interview / pricing / concierge experiment adapters
-- budget allocator
-- automatic result ingestion
-- explicit scale / pivot / kill decisions
+- [ ] experiment execution state machine
+- [ ] desk-research validation adapter
+- [ ] interview / pricing / smoke-test / concierge adapters
+- [ ] budget allocator for validation
+- [ ] automatic result ingestion
+- [ ] explicit advance / continue / pivot / kill decisions
 
 Exit criterion: HELIS can reject bad ideas using real-world validation without building full products.
 
