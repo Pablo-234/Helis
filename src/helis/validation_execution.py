@@ -6,10 +6,12 @@ from uuid import UUID
 
 from helis.budget import BudgetExceeded
 from helis.domain import (
+    AuditEvent,
     Experiment,
     ExperimentRun,
     ExperimentRunStatus,
     ExperimentType,
+    ExternalDispatch,
     Opportunity,
     ValidationResult,
     utc_now,
@@ -27,7 +29,7 @@ class ExperimentExecutor(Protocol):
         experiment: Experiment,
         opportunity: Opportunity,
         run: ExperimentRun,
-    ) -> ValidationResult: ...
+    ) -> ValidationResult | ExternalDispatch: ...
 
 
 @dataclass(slots=True)
@@ -45,15 +47,20 @@ class ValidationBudget:
             return False
         return experiment.max_duration_hours <= self.max_duration_hours
 
-    def record(self, result: ValidationResult) -> None:
+    def record_result(self, result: ValidationResult) -> None:
         self.executions += 1
         self.spent_cents += result.actual_cost_cents
+
+    def record_dispatch(self, experiment: Experiment) -> None:
+        self.executions += 1
+        self.spent_cents += experiment.max_cost_cents
 
 
 @dataclass(slots=True)
 class ExecutionOutcome:
     run: ExperimentRun
     result: ValidationResult | None = None
+    dispatch: ExternalDispatch | None = None
 
 
 class ValidationRunner:
@@ -75,6 +82,10 @@ class ValidationRunner:
 
         for review in reviews:
             experiment = review.experiment
+            executor = self.executors.get(experiment.experiment_type)
+            executor_requires_approval = bool(
+                getattr(executor, "requires_run_approval", False)
+            )
             runs = self.engine.store.list_experiment_runs(experiment_id=experiment.id)
             current = runs[0] if runs else None
 
@@ -84,12 +95,15 @@ class ValidationRunner:
                 ExperimentRunStatus.BLOCKED,
                 ExperimentRunStatus.CANCELLED,
                 ExperimentRunStatus.RUNNING,
-                ExperimentRunStatus.WAITING_APPROVAL,
+                ExperimentRunStatus.WAITING_RESULT,
             }:
                 continue
 
+            needs_approval = (
+                review.requires_approval or not review.executable or executor_requires_approval
+            )
             if current is None:
-                if review.requires_approval or not review.executable:
+                if needs_approval:
                     waiting = ExperimentRun(
                         experiment_id=experiment.id,
                         opportunity_id=opportunity.id,
@@ -104,10 +118,18 @@ class ValidationRunner:
                 )
                 self.engine.record_experiment_run(current, event_type="experiment.ready")
 
-            if not current.approval_granted and not review.executable:
+            if current.status == ExperimentRunStatus.WAITING_APPROVAL:
+                continue
+            if needs_approval and not current.approval_granted:
+                waiting = current.model_copy(
+                    update={
+                        "status": ExperimentRunStatus.WAITING_APPROVAL,
+                        "updated_at": utc_now(),
+                    }
+                )
+                self.engine.record_experiment_run(waiting, event_type="experiment.waiting_approval")
                 continue
 
-            executor = self.executors.get(experiment.experiment_type)
             if executor is None:
                 blocked = current.model_copy(
                     update={
@@ -133,7 +155,7 @@ class ValidationRunner:
             )
             self.engine.record_experiment_run(running, event_type="experiment.started")
             try:
-                result = executor.execute(experiment, opportunity, running)
+                execution = executor.execute(experiment, opportunity, running)
             except BudgetExceeded:
                 ready = running.model_copy(
                     update={
@@ -156,18 +178,33 @@ class ValidationRunner:
                 self.engine.record_experiment_run(failed, event_type="experiment.failed")
                 return ExecutionOutcome(run=failed)
 
-            self.engine.record_validation_result(result)
+            if isinstance(execution, ExternalDispatch):
+                waiting_result = running.model_copy(
+                    update={
+                        "status": ExperimentRunStatus.WAITING_RESULT,
+                        "external_ref": execution.dispatch_id,
+                        "updated_at": utc_now(),
+                    }
+                )
+                self.engine.record_experiment_run(
+                    waiting_result,
+                    event_type="experiment.dispatched",
+                )
+                self.validation_budget.record_dispatch(experiment)
+                return ExecutionOutcome(run=waiting_result, dispatch=execution)
+
+            self.engine.record_validation_result(execution)
             completed = running.model_copy(
                 update={
                     "status": ExperimentRunStatus.COMPLETED,
                     "completed_at": utc_now(),
-                    "actual_cost_cents": result.actual_cost_cents,
+                    "actual_cost_cents": execution.actual_cost_cents,
                     "updated_at": utc_now(),
                 }
             )
             self.engine.record_experiment_run(completed, event_type="experiment.completed")
-            self.validation_budget.record(result)
-            return ExecutionOutcome(run=completed, result=result)
+            self.validation_budget.record_result(execution)
+            return ExecutionOutcome(run=completed, result=execution)
 
         return None
 
@@ -186,3 +223,44 @@ class ValidationRunner:
         )
         self.engine.record_experiment_run(approved, event_type="experiment.approved")
         return approved
+
+    def complete_external(self, result: ValidationResult) -> ExperimentRun:
+        run = self.engine.store.get_experiment_run(result.run_id)
+        if run is None:
+            raise ValueError("experiment run not found")
+        if run.status != ExperimentRunStatus.WAITING_RESULT:
+            raise ValueError("external results are accepted only for waiting-result runs")
+        if run.experiment_id != result.experiment_id or run.opportunity_id != result.opportunity_id:
+            raise ValueError("validation result identifiers do not match the dispatched run")
+        if any(
+            existing.run_id == result.run_id
+            for existing in self.engine.store.list_validation_results(run.opportunity_id)
+        ):
+            raise ValueError("a validation result for this run has already been recorded")
+
+        experiment = self.engine.store.get_experiment(run.experiment_id)
+        if experiment is None:
+            raise ValueError("experiment not found")
+        self.engine.record_validation_result(result)
+        completed = run.model_copy(
+            update={
+                "status": ExperimentRunStatus.COMPLETED,
+                "completed_at": utc_now(),
+                "actual_cost_cents": result.actual_cost_cents,
+                "error": None,
+                "updated_at": utc_now(),
+            }
+        )
+        self.engine.record_experiment_run(completed, event_type="experiment.completed_external")
+        if result.actual_cost_cents > experiment.max_cost_cents:
+            self.engine.store.append_event(
+                AuditEvent(
+                    event_type="experiment.cost_overrun",
+                    entity_id=run.id,
+                    data={
+                        "planned_max_cost_cents": experiment.max_cost_cents,
+                        "actual_cost_cents": result.actual_cost_cents,
+                    },
+                )
+            )
+        return completed
