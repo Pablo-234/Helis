@@ -8,7 +8,9 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from helis.budget import CycleBudget
+from helis.budget import BudgetExceeded, CycleBudget
+from helis.build_store import BuildStore
+from helis.builder import BuilderMachine, BuilderTickReport
 from helis.cycle import CycleReport, HelisCycle
 from helis.domain import Observation, Opportunity, ScoreDimensions, ValidationResult
 from helis.engine import HelisEngine
@@ -122,6 +124,34 @@ def _print_validation_tick(report: ValidationTickReport) -> None:
             f"[cyan]follow-up planned[/] {report.follow_up_planned.experiment_type.value}: "
             f"{report.follow_up_planned.title}"
         )
+
+
+def _print_builder_tick(report: BuilderTickReport) -> None:
+    if report.opportunity_id is None:
+        console.print("builder: no validated/building venture is ready")
+        return
+    if report.spec is not None:
+        console.print(
+            f"build-spec: {report.spec.product_name} runtime={report.spec.runtime.value} "
+            f"flows={len(report.spec.core_flows)} criteria={len(report.spec.acceptance_criteria)}"
+        )
+    if report.run is None:
+        return
+    console.print(
+        f"build-run={report.run.id} status={report.run.status.value} "
+        f"files={report.run.file_count} bytes={report.run.total_bytes}"
+    )
+    if report.run.workspace_path:
+        console.print(f"workspace={report.run.workspace_path}")
+    if report.run.bundle_digest:
+        console.print(f"digest={report.run.bundle_digest}")
+    if report.sandbox is not None:
+        console.print(
+            f"verifier={report.sandbox.verifier} status={report.sandbox.status.value} "
+            f"exit={report.sandbox.exit_code if report.sandbox.exit_code is not None else '-'}"
+        )
+    if report.run.error:
+        console.print(f"[yellow]build error[/] {report.run.error}")
 
 
 @app.command()
@@ -288,6 +318,78 @@ def gateway_status() -> None:
         console.print("validation gateway: [yellow]not configured[/]")
         return
     console.print(f"validation gateway: [green]configured[/] → {gateway.safe_destination}")
+
+
+@app.command()
+def build(
+    db: Path = Path("helis.db"),
+    opportunity_id: str | None = None,
+    workspace_root: Path = Path("helis-workspaces"),
+    max_calls: int = 2,
+    max_tokens: int = 40_000,
+    max_cost_cents: float = 20.0,
+) -> None:
+    """Build and verify one validated venture in an isolated per-run workspace."""
+    helis = engine(db)
+    provider = OpenAICompatibleProvider.from_env()
+    budget = configured_budget(max_calls, max_tokens, max_cost_cents)
+    try:
+        report = BuilderMachine(
+            helis,
+            provider,
+            budget,
+            workspace_root=workspace_root,
+        ).tick(UUID(opportunity_id) if opportunity_id else None)
+    except BudgetExceeded as exc:
+        console.print(f"[yellow]builder deferred[/]: {exc}")
+        return
+    _print_builder_tick(report)
+    console.print(
+        f"builder usage: calls={budget.model_calls}/{budget.max_model_calls} "
+        f"tokens={budget.tokens}/{budget.max_tokens} cost≈{budget.cost_cents:.3f}¢"
+    )
+
+
+@app.command("build-status")
+def build_status(
+    db: Path = Path("helis.db"),
+    opportunity_id: str | None = None,
+) -> None:
+    """Show persisted build specs/runs without executing generated code."""
+    helis = engine(db)
+    build_store = BuildStore(helis.store)
+    if opportunity_id:
+        opportunity_uuid = UUID(opportunity_id)
+        spec = build_store.get_spec(opportunity_uuid)
+        run_state = build_store.get_latest_run(opportunity_uuid)
+        if spec is None and run_state is None:
+            console.print("builder: no build state for that venture")
+            return
+        _print_builder_tick(
+            BuilderTickReport(
+                opportunity_id=opportunity_uuid,
+                spec=spec,
+                run=run_state,
+                sandbox=run_state.sandbox if run_state else None,
+            )
+        )
+        return
+
+    runs = build_store.list_runs()
+    if not runs:
+        console.print("builder: no persisted build runs")
+        return
+    table = Table("Status", "Runtime", "Files", "Venture", "Run")
+    for run_state in runs:
+        spec = build_store.get_spec(run_state.opportunity_id)
+        table.add_row(
+            run_state.status.value,
+            spec.runtime.value if spec else "-",
+            str(run_state.file_count),
+            str(run_state.opportunity_id),
+            str(run_state.id),
+        )
+    console.print(table)
 
 
 @app.command()
