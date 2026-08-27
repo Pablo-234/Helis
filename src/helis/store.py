@@ -1,0 +1,99 @@
+from __future__ import annotations
+
+import json
+import sqlite3
+from pathlib import Path
+from uuid import UUID
+
+from helis.domain import AuditEvent, Opportunity, Scorecard
+
+
+class HelisStore:
+    def __init__(self, path: str | Path = "helis.db") -> None:
+        self.path = str(path)
+
+    def connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.path)
+        connection.row_factory = sqlite3.Row
+        return connection
+
+    def initialize(self) -> None:
+        with self.connect() as db:
+            db.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS opportunities (
+                    id TEXT PRIMARY KEY,
+                    payload TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS scorecards (
+                    opportunity_id TEXT PRIMARY KEY,
+                    payload TEXT NOT NULL,
+                    scored_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS events (
+                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id TEXT UNIQUE NOT NULL,
+                    event_type TEXT NOT NULL,
+                    entity_id TEXT,
+                    payload TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                """
+            )
+
+    def append_event(self, event: AuditEvent) -> None:
+        with self.connect() as db:
+            db.execute(
+                "INSERT INTO events (id, event_type, entity_id, payload, created_at) VALUES (?, ?, ?, ?, ?)",
+                (
+                    str(event.id),
+                    event.event_type,
+                    str(event.entity_id) if event.entity_id else None,
+                    event.model_dump_json(),
+                    event.created_at.isoformat(),
+                ),
+            )
+
+    def save_opportunity(self, opportunity: Opportunity) -> None:
+        with self.connect() as db:
+            db.execute(
+                "INSERT OR REPLACE INTO opportunities (id, payload, created_at) VALUES (?, ?, ?)",
+                (str(opportunity.id), opportunity.model_dump_json(), opportunity.discovered_at.isoformat()),
+            )
+
+    def list_opportunities(self) -> list[Opportunity]:
+        with self.connect() as db:
+            rows = db.execute("SELECT payload FROM opportunities ORDER BY created_at DESC").fetchall()
+        return [Opportunity.model_validate_json(row["payload"]) for row in rows]
+
+    def get_opportunity(self, opportunity_id: UUID) -> Opportunity | None:
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT payload FROM opportunities WHERE id = ?", (str(opportunity_id),)
+            ).fetchone()
+        return Opportunity.model_validate_json(row["payload"]) if row else None
+
+    def save_scorecard(self, scorecard: Scorecard) -> None:
+        with self.connect() as db:
+            db.execute(
+                "INSERT OR REPLACE INTO scorecards (opportunity_id, payload, scored_at) VALUES (?, ?, ?)",
+                (
+                    str(scorecard.opportunity_id),
+                    scorecard.model_dump_json(),
+                    scorecard.scored_at.isoformat(),
+                ),
+            )
+
+    def list_scorecards(self) -> list[Scorecard]:
+        with self.connect() as db:
+            rows = db.execute("SELECT payload FROM scorecards").fetchall()
+        cards = [Scorecard.model_validate_json(row["payload"]) for row in rows]
+        return sorted(cards, key=lambda card: card.total, reverse=True)
+
+    def list_events(self, limit: int = 100) -> list[AuditEvent]:
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT payload FROM events ORDER BY seq DESC LIMIT ?", (limit,)
+            ).fetchall()
+        return [AuditEvent.model_validate_json(row["payload"]) for row in rows]
