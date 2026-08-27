@@ -43,7 +43,7 @@ class BuildStore:
                     str(spec.opportunity_id),
                     str(spec.id),
                     spec.model_dump_json(),
-                    str(spec.created_at),
+                    spec.created_at.isoformat(),
                 ),
             )
 
@@ -67,7 +67,7 @@ class BuildStore:
                     str(run.opportunity_id),
                     run.status.value,
                     run.model_dump_json(),
-                    str(run.updated_at),
+                    run.updated_at.isoformat(),
                 ),
             )
 

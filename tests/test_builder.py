@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from uuid import uuid4
 
 from helis.budget import CycleBudget
 from helis.build_domain import BuildBundle, BuildFile, BuildRuntime, BuildRunStatus, BuildSpec
@@ -49,7 +50,7 @@ def test_bundle_rejects_workspace_escape() -> None:
         raise AssertionError("workspace escape was not rejected")
 
 
-def test_static_builder_creates_isolated_tested_workspace(tmp_path) -> None:
+def test_static_builder_claims_validated_venture_and_tests_workspace(tmp_path) -> None:
     engine = HelisEngine(HelisStore(tmp_path / "helis.db"))
     opportunity = Opportunity(
         title="Validated workflow tool",
@@ -59,9 +60,11 @@ def test_static_builder_creates_isolated_tested_workspace(tmp_path) -> None:
         stage=VentureStage.VALIDATED,
     )
     engine.ingest(opportunity)
+    spec_id = uuid4()
     provider = FakeProvider(
         [
             {
+                "id": str(spec_id),
                 "opportunity_id": str(opportunity.id),
                 "product_name": "Workflow Helper",
                 "objective": "Provide the smallest local interface for the validated workflow.",
@@ -72,7 +75,7 @@ def test_static_builder_creates_isolated_tested_workspace(tmp_path) -> None:
                 "runtime": "static_web",
             },
             {
-                "spec_id": "SPEC_ID_PLACEHOLDER",
+                "spec_id": str(spec_id),
                 "files": [
                     {
                         "path": "index.html",
@@ -88,18 +91,12 @@ def test_static_builder_creates_isolated_tested_workspace(tmp_path) -> None:
             },
         ]
     )
-
-    # The generator must echo the planner-created spec id, so patch the fake response between calls.
     machine = BuilderMachine(
         engine,
         provider,
         CycleBudget(max_model_calls=3),
         workspace_root=tmp_path / "workspaces",
     )
-    spec = machine.planner.plan(opportunity, [])
-    machine.build_store.save_spec(spec)
-    engine.store.save_opportunity(opportunity.model_copy(update={"stage": VentureStage.BUILDING}))
-    provider.payloads[0]["spec_id"] = str(spec.id)
 
     report = machine.tick(opportunity.id)
     assert report.run is not None
@@ -109,8 +106,10 @@ def test_static_builder_creates_isolated_tested_workspace(tmp_path) -> None:
     assert workspace.exists()
     assert (workspace / "index.html").is_file()
     assert (workspace / "helis-build-manifest.json").is_file()
-    assert not (tmp_path / "escape.html").exists()
     assert engine.store.get_opportunity(opportunity.id).stage == VentureStage.BUILDING
+    event_types = {event.event_type for event in engine.store.list_events(limit=20)}
+    assert "build.claimed" in event_types
+    assert "build.tested" in event_types
 
 
 def test_python_sandbox_never_falls_back_to_host(tmp_path, monkeypatch) -> None:

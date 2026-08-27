@@ -72,13 +72,21 @@ class DockerPythonSandbox:
                 verifier=self.name,
             )
 
-        inspect = subprocess.run(
-            [docker, "image", "inspect", self.image],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
-        )
+        try:
+            inspect = subprocess.run(
+                [docker, "image", "inspect", self.image],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                check=False,
+            )
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            return SandboxReport(
+                status=SandboxStatus.BLOCKED,
+                stderr=f"Docker image inspection unavailable: {exc}",
+                duration_seconds=time.monotonic() - start,
+                verifier=self.name,
+            )
         if inspect.returncode != 0:
             return SandboxReport(
                 status=SandboxStatus.BLOCKED,
@@ -139,6 +147,13 @@ class DockerPythonSandbox:
             return SandboxReport(
                 status=SandboxStatus.FAILED,
                 stderr=f"sandbox timeout after {self.timeout_seconds}s: {exc}",
+                duration_seconds=time.monotonic() - start,
+                verifier=self.name,
+            )
+        except OSError as exc:
+            return SandboxReport(
+                status=SandboxStatus.BLOCKED,
+                stderr=f"Docker execution unavailable: {exc}",
                 duration_seconds=time.monotonic() - start,
                 verifier=self.name,
             )

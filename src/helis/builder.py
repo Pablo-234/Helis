@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
 
-from helis.budget import CycleBudget
+from helis.budget import BudgetExceeded, CycleBudget
 from helis.build_domain import (
     BuildRun,
     BuildRunStatus,
@@ -93,6 +93,12 @@ class BuilderMachine:
             try:
                 bundle, _ = self.generator.generate(spec)
                 snapshot = self.workspaces.create(generating.id, spec, bundle)
+            except BudgetExceeded:
+                deferred = generating.model_copy(
+                    update={"status": BuildRunStatus.PLANNED, "updated_at": utc_now(), "error": None}
+                )
+                self._record_run(deferred, "build.deferred_budget")
+                raise
             except Exception as exc:  # noqa: BLE001 -- generated-build boundary is fail-closed
                 failed = generating.model_copy(
                     update={
@@ -130,7 +136,14 @@ class BuilderMachine:
                 update={"status": BuildRunStatus.TESTING, "updated_at": utc_now(), "error": None}
             )
             self._record_run(testing, "build.testing")
-            report = verifier_for(spec.runtime).verify(Path(testing.workspace_path))
+            try:
+                report = verifier_for(spec.runtime).verify(Path(testing.workspace_path))
+            except Exception as exc:  # noqa: BLE001 -- verifier must never fall back to host behavior
+                report = SandboxReport(
+                    status=SandboxStatus.BLOCKED,
+                    stderr=f"verifier unavailable: {type(exc).__name__}: {exc}",
+                    verifier="builder_fail_closed_boundary",
+                )
             status = {
                 SandboxStatus.PASSED: BuildRunStatus.TESTED,
                 SandboxStatus.FAILED: BuildRunStatus.FAILED,
@@ -166,7 +179,10 @@ class BuilderMachine:
             AuditEvent(
                 event_type="build.claimed",
                 entity_id=opportunity.id,
-                data={"from_stage": VentureStage.VALIDATED.value, "to_stage": VentureStage.BUILDING.value},
+                data={
+                    "from_stage": VentureStage.VALIDATED.value,
+                    "to_stage": VentureStage.BUILDING.value,
+                },
             )
         )
         return building

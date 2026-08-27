@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
@@ -39,7 +40,7 @@ class BuildSpec(BaseModel):
     acceptance_criteria: list[str] = Field(min_length=1, max_length=10)
     non_goals: list[str] = Field(default_factory=list, max_length=10)
     runtime: BuildRuntime
-    created_at: object = Field(default_factory=utc_now)
+    created_at: datetime = Field(default_factory=utc_now)
 
 
 class BuildFile(BaseModel):
@@ -73,5 +74,5 @@ class BuildRun(BaseModel):
     bundle_digest: str | None = None
     sandbox: SandboxReport | None = None
     error: str | None = None
-    created_at: object = Field(default_factory=utc_now)
-    updated_at: object = Field(default_factory=utc_now)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
