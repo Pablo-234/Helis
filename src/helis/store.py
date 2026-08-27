@@ -59,12 +59,13 @@ class HelisStore:
                 ),
             )
 
-    def save_observation(self, observation: Observation) -> None:
+    def save_observation(self, observation: Observation) -> bool:
         with self.connect() as db:
-            db.execute(
+            cursor = db.execute(
                 "INSERT OR IGNORE INTO observations (id, payload, captured_at) VALUES (?, ?, ?)",
                 (str(observation.id), observation.model_dump_json(), observation.captured_at.isoformat()),
             )
+            return cursor.rowcount > 0
 
     def list_observations(self, limit: int = 1000) -> list[Observation]:
         with self.connect() as db:

@@ -19,14 +19,15 @@ class HelisEngine:
         self.store.initialize()
 
     def observe(self, observation: Observation) -> Observation:
-        self.store.save_observation(observation)
-        self.store.append_event(
-            AuditEvent(
-                event_type="market.observed",
-                entity_id=observation.id,
-                data={"source": observation.source},
+        inserted = self.store.save_observation(observation)
+        if inserted:
+            self.store.append_event(
+                AuditEvent(
+                    event_type="market.observed",
+                    entity_id=observation.id,
+                    data={"source": observation.source},
+                )
             )
-        )
         return observation
 
     def ingest(self, opportunity: Opportunity) -> Opportunity:

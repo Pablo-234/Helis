@@ -14,6 +14,7 @@ from helis.domain import Observation, Opportunity, ScoreDimensions
 from helis.engine import HelisEngine
 from helis.model_provider import OpenAICompatibleProvider
 from helis.scout import OpportunityScout
+from helis.sources import GitHubIssuesSource, RSSSource
 from helis.store import HelisStore
 
 app = typer.Typer(help="HELIS autonomous venture engine")
@@ -32,6 +33,14 @@ def configured_budget(max_calls: int, max_tokens: int, max_cost_cents: float) ->
     )
 
 
+def _save_observations(helis: HelisEngine, observations: list[Observation]) -> None:
+    before = len(helis.store.list_observations())
+    for observation in observations:
+        helis.observe(observation)
+    after = len(helis.store.list_observations())
+    console.print(f"scan: fetched={len(observations)} new={after - before}")
+
+
 @app.command()
 def init(db: Path = Path("helis.db")) -> None:
     engine(db)
@@ -47,6 +56,26 @@ def observe(path: Path, db: Path = Path("helis.db")) -> None:
         observation = Observation.model_validate(raw)
         helis.observe(observation)
         console.print(f"observed {observation.id} — {observation.source}")
+
+
+@app.command("scan-rss")
+def scan_rss(url: str, db: Path = Path("helis.db"), limit: int = 50) -> None:
+    helis = engine(db)
+    _save_observations(helis, RSSSource(url=url, limit=limit).scan())
+
+
+@app.command("scan-github")
+def scan_github(
+    repository: str,
+    db: Path = Path("helis.db"),
+    state: str = "open",
+    limit: int = 50,
+) -> None:
+    helis = engine(db)
+    _save_observations(
+        helis,
+        GitHubIssuesSource(repository=repository, state=state, limit=limit).scan(),
+    )
 
 
 @app.command()
