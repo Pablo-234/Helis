@@ -100,6 +100,7 @@ def _experiment(opportunity_id) -> GTMExperiment:
                 currency="PLN",
             ),
         ],
+        max_resolved_per_arm=2,
         max_assignments_per_arm=2,
     )
 
