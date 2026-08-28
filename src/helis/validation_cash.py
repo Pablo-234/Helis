@@ -17,8 +17,6 @@ class ValidationCashCoordinator:
     def __init__(self, engine: HelisEngine, envelope_id: UUID | None = None) -> None:
         self.engine = engine
         self.envelope_id = envelope_id
-        self.cash = CashReservationManager(engine)
-        self.envelopes = ResourceEnvelopeManager(engine)
 
     @staticmethod
     def _key(run_id: UUID) -> str:
@@ -27,6 +25,11 @@ class ValidationCashCoordinator:
     def find_for_run(self, run_id: UUID) -> CashReservation | None:
         key = self._key(run_id)
         with self.engine.store.connect() as db:
+            table = db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'cash_reservations'"
+            ).fetchone()
+            if table is None:
+                return None
             rows = db.execute(
                 "SELECT payload FROM cash_reservations "
                 "WHERE source = ? AND idempotency_key = ?",
@@ -52,13 +55,14 @@ class ValidationCashCoordinator:
 
         if self.envelope_id is None:
             raise EnvelopeConflict("paid external validation requires a resource envelope")
-        envelope = self.envelopes.get(self.envelope_id)
+        envelopes = ResourceEnvelopeManager(self.engine)
+        envelope = envelopes.get(self.envelope_id)
         if envelope is None:
             raise EnvelopeConflict("validation resource envelope does not exist")
         if envelope.opportunity_id != run.opportunity_id:
             raise EnvelopeConflict("validation resource envelope belongs to another venture")
 
-        return self.cash.reserve(
+        return CashReservationManager(self.engine).reserve(
             envelope.id,
             amount_cents=experiment.max_cost_cents,
             source=self.source,
@@ -72,10 +76,13 @@ class ValidationCashCoordinator:
         if actual_cost_cents < 0:
             raise ValueError("validation cash cost cannot be negative")
         settled_cents = math.ceil(actual_cost_cents)
-        return self.cash.settle(reservation.id, actual_cents=settled_cents)
+        return CashReservationManager(self.engine).settle(
+            reservation.id,
+            actual_cents=settled_cents,
+        )
 
     def release_for_run(self, run_id: UUID, *, reason: str) -> CashReservation | None:
         reservation = self.find_for_run(run_id)
         if reservation is None:
             return None
-        return self.cash.release(reservation.id, reason=reason)
+        return CashReservationManager(self.engine).release(reservation.id, reason=reason)
