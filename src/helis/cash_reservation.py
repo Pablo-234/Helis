@@ -10,7 +10,12 @@ from pydantic import BaseModel, Field
 from helis.domain import AuditEvent, utc_now
 from helis.engine import HelisEngine
 from helis.portfolio_value import VentureCostEvent, VentureEconomicsStore
-from helis.resource_envelope import EnvelopeConflict, EnvelopeExceeded, EnvelopeStatus, ResourceEnvelope
+from helis.resource_envelope import (
+    EnvelopeConflict,
+    EnvelopeExceeded,
+    EnvelopeStatus,
+    ResourceEnvelope,
+)
 
 
 class CashReservationStatus(StrEnum):
