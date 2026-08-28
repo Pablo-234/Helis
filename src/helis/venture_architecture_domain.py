@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
@@ -38,4 +39,4 @@ class VentureArchitecture(BaseModel):
     capabilities: list[CapabilityNode] = Field(min_length=1, max_length=12)
     owner_responsibilities: list[str] = Field(default_factory=list, max_length=8)
     architecture_assumptions: list[str] = Field(default_factory=list, max_length=8)
-    created_at: object = Field(default_factory=utc_now)
+    created_at: datetime = Field(default_factory=utc_now)
