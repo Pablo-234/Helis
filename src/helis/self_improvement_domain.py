@@ -21,6 +21,10 @@ class ImprovementRisk(StrEnum):
     LOW = "low"
 
 
+class MetricDirection(StrEnum):
+    HIGHER_IS_BETTER = "higher_is_better"
+
+
 class ImprovementSignal(BaseModel):
     event_id: UUID
     event_type: str = Field(min_length=1, max_length=200)
@@ -36,6 +40,7 @@ class SelfImprovementProposal(BaseModel):
     target_files: list[str] = Field(min_length=1, max_length=2)
     acceptance_criteria: list[str] = Field(min_length=1, max_length=8)
     metric_name: str = Field(min_length=2, max_length=120)
+    metric_direction: MetricDirection = MetricDirection.HIGHER_IS_BETTER
     minimum_improvement: float = Field(default=0.01, gt=0, le=1000)
     risk: ImprovementRisk = ImprovementRisk.LOW
     status: ImprovementStatus = ImprovementStatus.PROPOSED
@@ -71,6 +76,7 @@ class SelfImprovementEvaluation(BaseModel):
     candidate_id: UUID
     candidate_hash: str = Field(min_length=64, max_length=64)
     metric_name: str = Field(min_length=2, max_length=120)
+    metric_direction: MetricDirection = MetricDirection.HIGHER_IS_BETTER
     baseline: EvaluationSnapshot
     candidate: EvaluationSnapshot
     regressions: list[str] = Field(default_factory=list, max_length=30)
