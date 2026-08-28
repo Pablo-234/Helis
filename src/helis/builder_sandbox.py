@@ -27,10 +27,7 @@ _PYTHON_ALLOWED_IMPORTS = {
     "app",
     "base64",
     "collections",
-    "dataclasses",
-    "datetime",
     "decimal",
-    "enum",
     "fractions",
     "functools",
     "hashlib",
@@ -44,16 +41,23 @@ _PYTHON_ALLOWED_IMPORTS = {
     "string",
     "typing",
     "unittest",
-    "uuid",
 }
 _PYTHON_FORBIDDEN_CALLS = {
     "__import__",
     "breakpoint",
     "compile",
+    "delattr",
+    "dir",
     "eval",
     "exec",
+    "getattr",
+    "globals",
+    "help",
     "input",
+    "locals",
     "open",
+    "setattr",
+    "vars",
 }
 _PYTHON_FORBIDDEN_NAMES = {"__builtins__", "__loader__", "__spec__"}
 _PYTHON_FORBIDDEN_ATTRIBUTES = {
@@ -67,6 +71,7 @@ _PYTHON_FORBIDDEN_ATTRIBUTES = {
     "__globals__",
     "__mro__",
     "__subclasses__",
+    "mro",
 }
 
 
@@ -147,7 +152,10 @@ def _literal_assignment(node: ast.Assign | ast.AnnAssign) -> bool:
 def _function_definition_safe(node: ast.FunctionDef) -> bool:
     if node.decorator_list:
         return False
-    defaults = [*node.args.defaults, *(item for item in node.args.kw_defaults if item is not None)]
+    defaults = [
+        *node.args.defaults,
+        *(item for item in node.args.kw_defaults if item is not None),
+    ]
     for default in defaults:
         try:
             ast.literal_eval(default)
