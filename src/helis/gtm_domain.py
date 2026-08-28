@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from helis.domain import utc_now
 
@@ -71,6 +71,12 @@ class OutreachDraft(BaseModel):
     experiment_id: UUID | None = None
     experiment_arm_key: str | None = Field(default=None, max_length=31)
     created_at: datetime = Field(default_factory=utc_now)
+
+    @model_validator(mode="after")
+    def validate_experiment_binding(self) -> OutreachDraft:
+        if (self.experiment_id is None) != (self.experiment_arm_key is None):
+            raise ValueError("experiment_id and experiment_arm_key must be set together")
+        return self
 
 
 class OutreachRunStatus(StrEnum):
