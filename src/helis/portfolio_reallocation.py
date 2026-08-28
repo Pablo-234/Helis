@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from datetime import datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
@@ -120,7 +121,19 @@ class PortfolioReallocator:
                         reason="latest plan has no funded venture allocations",
                     )
                 )
-            activated = self.envelopes.activate(previous)
+            try:
+                activated = self.envelopes.activate(previous)
+            except sqlite3.IntegrityError as exc:
+                if not self._is_open_commitment_error(exc):
+                    raise
+                return self._record(
+                    self._report(
+                        previous,
+                        disposition=ReallocationDisposition.DEFERRED_OPEN_COMMITMENT,
+                        new_plan_id=previous.id,
+                        reason="a concurrent open cash commitment blocked plan activation",
+                    )
+                )
             return self._record(
                 self._report(
                     previous,
@@ -170,7 +183,23 @@ class PortfolioReallocator:
                 )
             )
 
-        activated = self.envelopes.activate(proposed)
+        try:
+            activated = self.envelopes.activate(proposed)
+        except sqlite3.IntegrityError as exc:
+            if not self._is_open_commitment_error(exc):
+                raise
+            self._discard_unactivated_plan(proposed, previous)
+            return self._record(
+                self._report(
+                    previous,
+                    disposition=ReallocationDisposition.DEFERRED_OPEN_COMMITMENT,
+                    new_plan_id=previous.id,
+                    cash_consumed=cash_consumed,
+                    model_calls_consumed=model_calls_consumed,
+                    reason="a concurrent open cash commitment blocked envelope rollover",
+                )
+            )
+
         return self._record(
             self._report(
                 previous,
@@ -189,6 +218,32 @@ class PortfolioReallocator:
             for envelope in envelopes
             for item in self.cash.list(envelope.id)
         )
+
+    @staticmethod
+    def _is_open_commitment_error(exc: sqlite3.IntegrityError) -> bool:
+        message = str(exc).lower()
+        return "reservation" in message or "open cash commitment" in message
+
+    def _discard_unactivated_plan(
+        self,
+        proposed: PortfolioPlan,
+        previous: PortfolioPlan,
+    ) -> None:
+        """Do not leave an unactivated plan as latest after a commitment race."""
+        with self.engine.store.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            latest = db.execute(
+                "SELECT id FROM portfolio_plans ORDER BY created_at DESC LIMIT 1"
+            ).fetchone()
+            has_envelopes = db.execute(
+                "SELECT 1 FROM resource_envelopes WHERE plan_id = ? LIMIT 1",
+                (str(proposed.id),),
+            ).fetchone()
+            if latest and latest["id"] == str(proposed.id) and has_envelopes is None:
+                db.execute("DELETE FROM portfolio_plans WHERE id = ?", (str(proposed.id),))
+
+        if self.portfolio.latest() is None:
+            self.portfolio.save(previous)
 
     def _report(
         self,
