@@ -41,7 +41,7 @@ Exit criterion: met for an operator-triggered cycle. Scheduled waking remains an
 - [x] deterministic decision thresholds outside the model
 - [x] automatic follow-up experiment generation after insufficient evidence
 
-Exit criterion: met at the transport layer when an approved validation gateway is configured. HELIS can execute a real external validation action without granting blanket contact permission, persist the asynchronous run, ingest the result and decide what to do next. Native channel adapters remain optional refinements.
+Exit criterion: met at the transport layer when an approved validation gateway is configured.
 
 ## Phase 2 — Builder (current)
 
@@ -56,10 +56,10 @@ Exit criterion: met at the transport layer when an approved validation gateway i
 - [x] adversarial model review after deterministic checks
 - [x] shared model budget + per-build file/byte stop conditions
 - [x] explicit promotion from `validated` → `building` → `ready_preview`
-- [ ] bounded automatic repair loop for rejected builds
+- [x] bounded automatic repair loop with a default two-attempt cap
 - [ ] executable-code sandbox backend with network/resource isolation
 
-Exit criterion: partially met. A validated venture can become a constrained, tested local preview artifact without modifying HELIS core. Actual preview publication and bounded repair are the next slices.
+Exit criterion: almost met for constrained artifacts. A validated venture can become a tested local preview and repair one failed attempt automatically. Publishing the exact reviewed hash through a policy-gated preview transport is the next slice.
 
 ## Phase 3 — Go-to-market
 

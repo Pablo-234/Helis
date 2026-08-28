@@ -26,21 +26,23 @@ whitelisted template
 model generates allowed text files
       ↓
 deterministic verifier
-  - path containment
-  - file/byte caps
-  - required files
-  - secret scan
-  - active-content checks
       ↓
 isolated per-run workspace
       ↓
 adversarial model review
       ↓
-READY_PREVIEW manifest
+PASS → READY_PREVIEW
+FAIL → one bounded repair → verify + review again → READY_PREVIEW or STOP
 ```
 
-A review score below 7/10 or any blocking issue fails the build. A deterministic verification failure
-prevents the artifact from being written to the workspace at all.
+A review score below 7/10 or any blocking issue fails the build. Deterministic verification failures
+are also eligible for the single repair attempt. The repairer receives the exact failed checks,
+review feedback and, when safe to read, the previous artifact. It cannot change template, add paths or
+expand capabilities.
+
+The default build policy is **two attempts total**: one original build plus one repair. The hard cap is
+three attempts even if a caller explicitly configures it. After the cap, the build stays failed until
+a future explicit product decision changes the build spec.
 
 ## Why no arbitrary code execution yet?
 

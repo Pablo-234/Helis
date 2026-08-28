@@ -8,9 +8,11 @@ from helis.budget import BudgetExceeded, CycleBudget
 from helis.build_templates import get_template
 from helis.builder_generator import BuilderGenerator, BuildGenerationError
 from helis.builder_planner import BuilderPlanner
+from helis.builder_repair import BuilderRepairer
 from helis.builder_review import AdversarialBuildReviewer
 from helis.builder_sandbox import BuildSandbox, BuildVerifier, UnsafeBuildArtifact, bundle_hash
 from helis.domain import (
+    BuildBundle,
     BuildCheck,
     BuildReview,
     BuildReviewVerdict,
@@ -36,6 +38,7 @@ class BuildTickReport:
     preview: PreviewManifest | None = None
     model_budget_exhausted: bool = False
     blocked_reason: str | None = None
+    repair_attempted: bool = False
 
 
 class BuilderMachine:
@@ -46,14 +49,19 @@ class BuilderMachine:
         budget: CycleBudget,
         *,
         workspace_root: str | Path = ".helis/workspaces",
+        max_attempts: int = 2,
     ) -> None:
+        if max_attempts < 1 or max_attempts > 3:
+            raise ValueError("max_attempts must be between 1 and 3")
         self.engine = engine
         self.budget = budget
         self.planner = BuilderPlanner(provider, budget)
         self.generator = BuilderGenerator(provider, budget)
+        self.repairer = BuilderRepairer(provider, budget)
         self.reviewer = AdversarialBuildReviewer(provider, budget)
         self.verifier = BuildVerifier()
         self.sandbox = BuildSandbox(workspace_root)
+        self.max_attempts = max_attempts
 
     def tick(self, opportunity_id: UUID | None = None) -> BuildTickReport:
         opportunity = self._target(opportunity_id)
@@ -83,13 +91,26 @@ class BuilderMachine:
 
         runs = self.engine.store.list_build_runs(spec_id=spec.id)
         run = runs[0] if runs else None
+        failed_source: BuildRun | None = None
+        repair_attempted = False
         if run is not None and run.status == BuildStatus.FAILED:
-            return BuildTickReport(
+            if run.attempt >= self.max_attempts:
+                return BuildTickReport(
+                    opportunity_id=opportunity.id,
+                    spec=spec,
+                    run=run,
+                    blocked_reason=(
+                        f"build repair budget exhausted after {run.attempt} attempts"
+                    ),
+                )
+            failed_source = run
+            repair_attempted = True
+            run = BuildRun(
+                spec_id=spec.id,
                 opportunity_id=opportunity.id,
-                spec=spec,
-                run=run,
-                blocked_reason="latest build failed; bounded repair loop is not enabled yet",
+                attempt=failed_source.attempt + 1,
             )
+            self.engine.record_build_run(run, event_type="build.repair_planned")
 
         if run is None:
             run = BuildRun(spec_id=spec.id, opportunity_id=opportunity.id)
@@ -98,24 +119,28 @@ class BuilderMachine:
         checks: list[BuildCheck] | None = None
         if run.status == BuildStatus.PLANNED:
             try:
-                bundle = self.generator.generate(opportunity, spec, validation_results)
+                bundle = self._generate_bundle(
+                    opportunity,
+                    spec,
+                    validation_results,
+                    failed_source,
+                )
             except BudgetExceeded:
                 return BuildTickReport(
                     opportunity_id=opportunity.id,
                     spec=spec,
                     run=run,
                     model_budget_exhausted=True,
+                    repair_attempted=repair_attempted,
                 )
             except BuildGenerationError as exc:
-                failed = run.model_copy(
-                    update={"status": BuildStatus.FAILED, "error": str(exc), "updated_at": utc_now()}
-                )
-                self.engine.record_build_run(failed, event_type="build.generation_failed")
+                failed = self._fail(run, str(exc), "build.generation_failed")
                 return BuildTickReport(
                     opportunity_id=opportunity.id,
                     spec=spec,
                     run=failed,
                     blocked_reason=str(exc),
+                    repair_attempted=repair_attempted,
                 )
 
             checks = self.verifier.verify(spec, bundle)
@@ -123,35 +148,31 @@ class BuilderMachine:
                 check.run_id = run.id
                 self.engine.record_build_check(check)
             if not all(check.passed for check in checks):
-                failed = run.model_copy(
-                    update={
-                        "status": BuildStatus.FAILED,
-                        "error": "deterministic build verification failed",
-                        "updated_at": utc_now(),
-                    }
+                failed = self._fail(
+                    run,
+                    "deterministic build verification failed",
+                    "build.verification_failed",
                 )
-                self.engine.record_build_run(failed, event_type="build.verification_failed")
                 return BuildTickReport(
                     opportunity_id=opportunity.id,
                     spec=spec,
                     run=failed,
                     checks=checks,
                     blocked_reason=failed.error,
+                    repair_attempted=repair_attempted,
                 )
 
             try:
                 workspace = self.sandbox.write(run, bundle)
             except UnsafeBuildArtifact as exc:
-                failed = run.model_copy(
-                    update={"status": BuildStatus.FAILED, "error": str(exc), "updated_at": utc_now()}
-                )
-                self.engine.record_build_run(failed, event_type="build.sandbox_failed")
+                failed = self._fail(run, str(exc), "build.sandbox_failed")
                 return BuildTickReport(
                     opportunity_id=opportunity.id,
                     spec=spec,
                     run=failed,
                     checks=checks,
                     blocked_reason=str(exc),
+                    repair_attempted=repair_attempted,
                 )
             run = run.model_copy(
                 update={
@@ -174,30 +195,26 @@ class BuilderMachine:
                     run=run,
                     checks=checks,
                     model_budget_exhausted=True,
+                    repair_attempted=repair_attempted,
                 )
             except UnsafeBuildArtifact as exc:
-                failed = run.model_copy(
-                    update={"status": BuildStatus.FAILED, "error": str(exc), "updated_at": utc_now()}
-                )
-                self.engine.record_build_run(failed, event_type="build.sandbox_failed")
+                failed = self._fail(run, str(exc), "build.sandbox_failed")
                 return BuildTickReport(
                     opportunity_id=opportunity.id,
                     spec=spec,
                     run=failed,
                     checks=checks,
                     blocked_reason=str(exc),
+                    repair_attempted=repair_attempted,
                 )
 
             self.engine.record_build_review(review)
             if review.verdict != BuildReviewVerdict.PASS:
-                failed = run.model_copy(
-                    update={
-                        "status": BuildStatus.FAILED,
-                        "error": "adversarial review rejected the build",
-                        "updated_at": utc_now(),
-                    }
+                failed = self._fail(
+                    run,
+                    "adversarial review rejected the build",
+                    "build.review_failed",
                 )
-                self.engine.record_build_run(failed, event_type="build.review_failed")
                 return BuildTickReport(
                     opportunity_id=opportunity.id,
                     spec=spec,
@@ -205,6 +222,7 @@ class BuilderMachine:
                     checks=checks,
                     review=review,
                     blocked_reason=failed.error,
+                    repair_attempted=repair_attempted,
                 )
 
             definition = get_template(spec.template)
@@ -231,9 +249,49 @@ class BuilderMachine:
                 checks=checks,
                 review=review,
                 preview=preview,
+                repair_attempted=repair_attempted,
             )
 
-        return BuildTickReport(opportunity_id=opportunity.id, spec=spec, run=run, checks=checks)
+        return BuildTickReport(
+            opportunity_id=opportunity.id,
+            spec=spec,
+            run=run,
+            checks=checks,
+            repair_attempted=repair_attempted,
+        )
+
+    def _generate_bundle(
+        self,
+        opportunity: Opportunity,
+        spec: BuildSpec,
+        validation_results: list,
+        failed_source: BuildRun | None,
+    ) -> BuildBundle:
+        if failed_source is None:
+            return self.generator.generate(opportunity, spec, validation_results)
+
+        previous_bundle: BuildBundle | None = None
+        if failed_source.workspace:
+            try:
+                previous_bundle = self.sandbox.read(failed_source)
+            except UnsafeBuildArtifact:
+                previous_bundle = None
+        return self.repairer.repair(
+            opportunity,
+            spec,
+            validation_results,
+            failed_source,
+            self.engine.store.list_build_checks(failed_source.id),
+            self.engine.store.get_build_review(failed_source.id),
+            previous_bundle,
+        )
+
+    def _fail(self, run: BuildRun, error: str, event_type: str) -> BuildRun:
+        failed = run.model_copy(
+            update={"status": BuildStatus.FAILED, "error": error, "updated_at": utc_now()}
+        )
+        self.engine.record_build_run(failed, event_type=event_type)
+        return failed
 
     def _target(self, opportunity_id: UUID | None) -> Opportunity | None:
         if opportunity_id is not None:
