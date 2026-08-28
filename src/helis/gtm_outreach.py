@@ -19,6 +19,8 @@ from helis.gtm_domain import (
     OutreachRunStatus,
     RevenueEvent,
 )
+from helis.gtm_feedback import GTMFeedbackRefresher
+from helis.gtm_lifecycle import gtm_is_active
 from helis.gtm_store import GTMStore, lead_identity
 from helis.policy import ActionKind, ActionRequest, AutonomyPolicy
 
@@ -69,6 +71,7 @@ class OutreachManager:
     ) -> None:
         self.engine = engine
         self.state = GTMStore(engine.store)
+        self.feedback = GTMFeedbackRefresher(engine)
         self.gateway = gateway
         self.contact_policy = contact_policy or GTMContactPolicy()
         self.autonomy_policy = autonomy_policy or AutonomyPolicy()
@@ -79,6 +82,7 @@ class OutreachManager:
         existing = self.state.get_latest_run_for_draft(draft.id)
         if existing is not None:
             return existing
+        self._validate_venture_for_contact(lead.opportunity_id)
         self._validate_lead_for_contact(lead)
 
         decision = self.autonomy_policy.evaluate(
@@ -136,6 +140,12 @@ class OutreachManager:
         if self.gateway is None:
             raise OutreachError("contact gateway is not configured")
 
+        opportunity = self.engine.store.get_opportunity(run.opportunity_id)
+        if opportunity is None:
+            return self._block(run, "venture no longer exists")
+        if not gtm_is_active(opportunity.stage):
+            return self._block(run, f"venture stage {opportunity.stage.value} is not GTM-active")
+
         draft = self._require_draft(run.draft_id)
         lead = self._require_lead(run.lead_id)
         self._validate_lead_for_contact(lead)
@@ -174,6 +184,7 @@ class OutreachManager:
         run = self._require_run(response.run_id)
         existing = self.state.get_response_for_run(run.id)
         if existing is not None:
+            self._refresh_feedback(existing.opportunity_id, existing.id)
             return existing, self.state.get_revenue_for_response(existing.id)
         if run.status not in {OutreachRunStatus.DISPATCHED, OutreachRunStatus.WAITING_RESULT}:
             raise OutreachError(f"run {run.id} is not waiting for a response")
@@ -238,7 +249,23 @@ class OutreachManager:
                     },
                 )
             )
+        self._refresh_feedback(response.opportunity_id, response.id)
         return response, revenue
+
+    def _refresh_feedback(self, opportunity_id: UUID, response_id: UUID) -> None:
+        try:
+            self.feedback.refresh(opportunity_id)
+        except Exception as exc:  # noqa: BLE001 -- persisted market outcome must remain accepted
+            self.engine.store.append_event(
+                AuditEvent(
+                    event_type="gtm.feedback_refresh_failed",
+                    entity_id=response_id,
+                    data={
+                        "opportunity_id": str(opportunity_id),
+                        "error": f"{type(exc).__name__}: {exc}",
+                    },
+                )
+            )
 
     def _enforce_contact_limits(self, lead: Lead, *, now: datetime | None = None) -> None:
         current = now or datetime.now(UTC)
@@ -257,6 +284,13 @@ class OutreachManager:
             raise OutreachError("daily contact cap reached")
         if identity_contacts >= self.contact_policy.max_contacts_per_identity:
             raise OutreachError("identity contact cap reached")
+
+    def _validate_venture_for_contact(self, opportunity_id: UUID) -> None:
+        opportunity = self.engine.store.get_opportunity(opportunity_id)
+        if opportunity is None:
+            raise OutreachError("venture no longer exists")
+        if not gtm_is_active(opportunity.stage):
+            raise OutreachError(f"venture stage {opportunity.stage.value} is not GTM-active")
 
     def _validate_lead_for_contact(self, lead: Lead) -> None:
         if lead.stage == LeadStage.SUPPRESSED or self.state.is_suppressed(lead_identity(lead)):

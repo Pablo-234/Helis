@@ -46,7 +46,7 @@ def _drafted_lead(engine: HelisEngine, *, domain: str = "acme.example") -> tuple
         proposed_value="prepare clearer quotes faster",
         stage=VentureStage.READY_PREVIEW,
     )
-    engine.ingest(opportunity)
+    engine.store.save_opportunity(opportunity)
     evidence = ProspectEvidence(
         source="public service page",
         source_url=f"https://{domain}/services",

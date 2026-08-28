@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from helis.cash_reservation import CashReservationManager, CashReservationStatus
 from helis.domain import AuditEvent, utc_now
 from helis.engine import HelisEngine
+from helis.gtm_feedback import GTMFeedbackRefresher
 from helis.portfolio import PortfolioAllocator, PortfolioPlan, PortfolioStore
 from helis.portfolio_scheduler import PortfolioScheduler, SchedulerTickReport
 from helis.resource_envelope import ResourceEnvelope, ResourceEnvelopeManager
@@ -296,16 +297,18 @@ class PortfolioReallocator:
 
 
 class ReallocatingPortfolioControlLoop:
-    """Wake/tick entrypoint: reconcile capital first, then run the bounded scheduler."""
+    """Wake/tick entrypoint: refresh GTM, reconcile capital, then run the bounded scheduler."""
 
     def __init__(
         self,
         engine: HelisEngine,
         scheduler: PortfolioScheduler,
     ) -> None:
+        self.feedback = GTMFeedbackRefresher(engine)
         self.reallocator = PortfolioReallocator(engine)
         self.scheduler = scheduler
 
     def tick(self, *, max_advances: int) -> SchedulerTickReport:
+        self.feedback.refresh_all()
         self.reallocator.reconcile()
         return self.scheduler.tick(max_advances=max_advances)
