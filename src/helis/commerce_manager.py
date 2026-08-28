@@ -15,9 +15,16 @@ from helis.commerce_domain import (
     CommerceRevenueEvent,
     PaymentResultStatus,
 )
-from helis.commerce_gateway import CommerceGateway
+from helis.commerce_gateway import CommerceGateway, validate_checkout_url
 from helis.commerce_store import CommerceStore
-from helis.domain import AuditEvent, DeliveryModel, Opportunity, RevenueModel, VentureStage, utc_now
+from helis.domain import (
+    AuditEvent,
+    DeliveryModel,
+    Opportunity,
+    RevenueModel,
+    VentureStage,
+    utc_now,
+)
 from helis.engine import HelisEngine
 from helis.policy import ActionKind, ActionRequest, AutonomyPolicy
 
@@ -162,6 +169,7 @@ class CommerceManager:
 
         try:
             ack = self.gateway.create_checkout(run, offer)
+            validate_checkout_url(ack.checkout_url)
         except Exception as exc:  # noqa: BLE001 -- external boundary failure is persisted and isolated
             failed = run.model_copy(
                 update={
