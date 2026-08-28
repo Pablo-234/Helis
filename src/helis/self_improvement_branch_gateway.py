@@ -25,6 +25,7 @@ class BranchMaterializationAck(BaseModel):
     candidate_hash: str = Field(min_length=64, max_length=64)
     base_revision: str = Field(min_length=40, max_length=40)
     branch_name: str = Field(min_length=8, max_length=160)
+    base_file_hashes: dict[str, str] = Field(default_factory=dict)
     external_ref: str = Field(min_length=1, max_length=1000)
 
 
@@ -125,6 +126,7 @@ class ApprovedSelfImprovementBranchGateway:
                     "exact_base_revision": run.base_revision,
                     "exact_branch_name": run.branch_name,
                     "exact_candidate_hash": run.candidate_hash,
+                    "verify_base_file_hashes_before_write": True,
                     "no_merge": True,
                     "no_default_branch_write": True,
                     "no_test_mutation": True,
