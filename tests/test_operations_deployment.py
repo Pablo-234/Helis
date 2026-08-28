@@ -4,7 +4,6 @@ from pathlib import Path
 
 from helis.scheduler_cli import health
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
