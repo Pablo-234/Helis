@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
 
+from helis.agent_spec_planner import AgentSpecPlanReport, AgentSpecPlanner
 from helis.bot_architect import ArchitecturePlanReport, BotArchitect
 from helis.builder_machine import BuilderMachine, BuildTickReport
 from helis.cash_reservation import CashReservationManager
@@ -32,6 +33,7 @@ class VentureRuntimeReport:
     budget: EnvelopeCycleBudget
     validation: ValidationTickReport | None = None
     architecture: ArchitecturePlanReport | None = None
+    agent_specs: AgentSpecPlanReport | None = None
     build: BuildTickReport | None = None
     gtm: GTMTickReport | None = None
 
@@ -39,6 +41,8 @@ class VentureRuntimeReport:
     def did_work(self) -> bool:
         if self.gtm is not None:
             return self.gtm.did_work
+        if self.agent_specs is not None and self.build is None:
+            return self.agent_specs.did_work
         if self.architecture is not None and self.build is None:
             return self.architecture.did_work
         return True
@@ -195,6 +199,7 @@ class VentureRuntime:
 
         current = self.engine.store.get_opportunity(self.opportunity_id)
         architecture: ArchitecturePlanReport | None = None
+        agent_specs: AgentSpecPlanReport | None = None
         if (
             current is not None
             and current.stage == VentureStage.VALIDATED
@@ -218,6 +223,26 @@ class VentureRuntime:
                     architecture=architecture,
                 )
 
+            agent_specs = AgentSpecPlanner(self.engine, self.provider, budget).plan_if_needed(
+                self.opportunity_id
+            )
+            if agent_specs.model_budget_exhausted or agent_specs.blocked_reason is not None:
+                return VentureRuntimeReport(
+                    envelope=self._require_envelope(),
+                    budget=budget,
+                    validation=validation,
+                    architecture=architecture,
+                    agent_specs=agent_specs,
+                )
+            if agent_specs.created and agent_specs.model_call_used:
+                return VentureRuntimeReport(
+                    envelope=self._require_envelope(),
+                    budget=budget,
+                    validation=validation,
+                    architecture=architecture,
+                    agent_specs=agent_specs,
+                )
+
         build = BuilderMachine(
             self.engine,
             self.provider,
@@ -229,6 +254,7 @@ class VentureRuntime:
             budget=budget,
             validation=validation,
             architecture=architecture,
+            agent_specs=agent_specs,
             build=build,
         )
 
