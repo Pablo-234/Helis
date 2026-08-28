@@ -10,6 +10,8 @@ from helis.engine import HelisEngine
 from helis.gtm_domain import (
     Lead,
     LeadChannel,
+    LeadResponse,
+    LeadResponseKind,
     LeadStage,
     OutreachDraft,
     OutreachRun,
@@ -79,6 +81,28 @@ class FakeContactGateway:
             accepted=True,
             dispatch_id=f"dispatch-{run.id}",
             channel=lead.channel.value,
+        )
+
+
+@dataclass(slots=True)
+class FakeContactResultGateway:
+    response_kind: LeadResponseKind = LeadResponseKind.SALE
+    revenue_cents: int = 12_500
+    calls: int = 0
+
+    name: str = "fake_contact_result_gateway"
+    safe_destination: str = "https://results.example.test"
+
+    def fetch(self, run: OutreachRun) -> LeadResponse | None:
+        self.calls += 1
+        return LeadResponse(
+            run_id=run.id,
+            lead_id=run.lead_id,
+            opportunity_id=run.opportunity_id,
+            kind=self.response_kind,
+            summary="Observed outcome from the operator-owned sales system.",
+            revenue_cents=self.revenue_cents,
+            currency="PLN",
         )
 
 
@@ -172,6 +196,84 @@ def test_already_approved_run_dispatches_with_zero_model_capacity(tmp_path) -> N
     assert saved is not None and saved.status == OutreachRunStatus.WAITING_RESULT
     assert report.dispatched_run_id == run.id
     assert report.waiting_result == 1
+
+
+def test_waiting_result_without_result_gateway_is_a_zero_model_gate(tmp_path) -> None:
+    engine = HelisEngine(HelisStore(tmp_path / "helis.db"))
+    opportunity = _venture(engine, VentureStage.LAUNCHED)
+    lead, draft = _draft(engine, opportunity)
+    state = GTMStore(engine.store)
+    run = OutreachRun(
+        draft_id=draft.id,
+        lead_id=lead.id,
+        opportunity_id=opportunity.id,
+        draft_hash=draft_hash(draft),
+        status=OutreachRunStatus.WAITING_RESULT,
+        approval_granted=True,
+        external_ref="dispatch-existing",
+    )
+    state.save_outreach_run(run)
+
+    report = GTMRuntime(
+        engine,
+        NeverProvider(),
+        CycleBudget(max_model_calls=0),
+    ).tick(opportunity.id)
+
+    assert report.reason == "contact_result_gateway_missing"
+    assert report.waiting_result == 1
+    assert state.list_responses(opportunity.id) == []
+    assert state.list_revenue(opportunity.id) == []
+
+
+def test_observed_sale_is_ingested_and_attributed_with_zero_model_calls(tmp_path) -> None:
+    engine = HelisEngine(HelisStore(tmp_path / "helis.db"))
+    opportunity = _venture(engine, VentureStage.LAUNCHED)
+    lead, draft = _draft(engine, opportunity)
+    state = GTMStore(engine.store)
+    run = OutreachRun(
+        draft_id=draft.id,
+        lead_id=lead.id,
+        opportunity_id=opportunity.id,
+        draft_hash=draft_hash(draft),
+        status=OutreachRunStatus.WAITING_RESULT,
+        approval_granted=True,
+        external_ref="dispatch-sale-1",
+    )
+    state.save_outreach_run(run)
+    gateway = FakeContactResultGateway(revenue_cents=12_500)
+
+    report = GTMRuntime(
+        engine,
+        NeverProvider(),
+        CycleBudget(max_model_calls=0),
+        contact_result_gateway=gateway,
+    ).tick(opportunity.id)
+
+    saved_run = state.get_outreach_run(run.id)
+    saved_lead = state.get_lead(lead.id)
+    responses = state.list_responses(opportunity.id)
+    revenue = state.list_revenue(opportunity.id)
+    assert gateway.calls == 1
+    assert report.reason == "observed_sale_ingested"
+    assert report.did_work is True
+    assert saved_run is not None and saved_run.status == OutreachRunStatus.COMPLETED
+    assert saved_lead is not None and saved_lead.stage == LeadStage.WON
+    assert len(responses) == 1 and responses[0].kind == LeadResponseKind.SALE
+    assert len(revenue) == 1
+    assert revenue[0].amount_cents == 12_500
+    assert revenue[0].opportunity_id == opportunity.id
+    assert revenue[0].lead_id == lead.id
+
+    second = GTMRuntime(
+        engine,
+        NeverProvider(),
+        CycleBudget(max_model_calls=0),
+        contact_result_gateway=gateway,
+    ).tick(opportunity.id)
+    assert gateway.calls == 1
+    assert len(state.list_revenue(opportunity.id)) == 1
+    assert second.reason in {"prospect_gateway_missing", "no_model_capacity"}
 
 
 def test_approval_backlog_prevents_more_discovery(tmp_path) -> None:
