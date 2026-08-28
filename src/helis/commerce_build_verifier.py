@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from urllib.parse import urlsplit
 
 from helis.commerce_domain import CommerceBuildContext
 from helis.domain import BuildBundle, BuildCheck, BuildSpec, BuildTemplate
@@ -37,9 +36,7 @@ class CommerceBuildVerifier:
         index = next((item.content for item in bundle.files if item.path == "index.html"), "")
         hrefs = _HREF_PATTERN.findall(index)
         http_hrefs = [
-            href
-            for href in hrefs
-            if urlsplit(href).scheme.lower() in {"http", "https"}
+            href for href in hrefs if href.lower().startswith(("http://", "https://"))
         ]
         exact_checkout_count = sum(href == commerce.checkout_url for href in hrefs)
         alternate_http = sorted({href for href in http_hrefs if href != commerce.checkout_url})
