@@ -19,6 +19,7 @@ from helis.gtm_domain import (
     OutreachRunStatus,
     RevenueEvent,
 )
+from helis.gtm_feedback import GTMFeedbackRefresher
 from helis.gtm_store import GTMStore, lead_identity
 from helis.policy import ActionKind, ActionRequest, AutonomyPolicy
 
@@ -69,6 +70,7 @@ class OutreachManager:
     ) -> None:
         self.engine = engine
         self.state = GTMStore(engine.store)
+        self.feedback = GTMFeedbackRefresher(engine)
         self.gateway = gateway
         self.contact_policy = contact_policy or GTMContactPolicy()
         self.autonomy_policy = autonomy_policy or AutonomyPolicy()
@@ -174,6 +176,7 @@ class OutreachManager:
         run = self._require_run(response.run_id)
         existing = self.state.get_response_for_run(run.id)
         if existing is not None:
+            self._refresh_feedback(existing.opportunity_id, existing.id)
             return existing, self.state.get_revenue_for_response(existing.id)
         if run.status not in {OutreachRunStatus.DISPATCHED, OutreachRunStatus.WAITING_RESULT}:
             raise OutreachError(f"run {run.id} is not waiting for a response")
@@ -238,7 +241,23 @@ class OutreachManager:
                     },
                 )
             )
+        self._refresh_feedback(response.opportunity_id, response.id)
         return response, revenue
+
+    def _refresh_feedback(self, opportunity_id: UUID, response_id: UUID) -> None:
+        try:
+            self.feedback.refresh(opportunity_id)
+        except Exception as exc:  # noqa: BLE001 -- persisted market outcome must remain accepted
+            self.engine.store.append_event(
+                AuditEvent(
+                    event_type="gtm.feedback_refresh_failed",
+                    entity_id=response_id,
+                    data={
+                        "opportunity_id": str(opportunity_id),
+                        "error": f"{type(exc).__name__}: {exc}",
+                    },
+                )
+            )
 
     def _enforce_contact_limits(self, lead: Lead, *, now: datetime | None = None) -> None:
         current = now or datetime.now(UTC)
