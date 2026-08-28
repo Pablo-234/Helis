@@ -18,7 +18,9 @@ from helis.domain import (
 )
 from helis.engine import HelisEngine
 from helis.policy import AutonomyPolicy
+from helis.resource_envelope import EnvelopeConflict, EnvelopeExceeded
 from helis.validation import rank_experiments
+from helis.validation_cash import ValidationCashCoordinator
 
 
 class ExperimentExecutor(Protocol):
@@ -70,11 +72,13 @@ class ValidationRunner:
         policy: AutonomyPolicy,
         validation_budget: ValidationBudget | None = None,
         executors: dict[ExperimentType, ExperimentExecutor] | None = None,
+        cash_envelope_id: UUID | None = None,
     ) -> None:
         self.engine = engine
         self.policy = policy
         self.validation_budget = validation_budget or ValidationBudget()
         self.executors = executors or {}
+        self.cash = ValidationCashCoordinator(engine, cash_envelope_id)
 
     def execute_next(self, opportunity: Opportunity) -> ExecutionOutcome | None:
         experiments = self.engine.store.list_experiments(opportunity.id)
@@ -85,6 +89,9 @@ class ValidationRunner:
             executor = self.executors.get(experiment.experiment_type)
             executor_requires_approval = bool(
                 getattr(executor, "requires_run_approval", False)
+            )
+            executor_requires_cash = bool(
+                getattr(executor, "requires_cash_reservation", False)
             )
             runs = self.engine.store.list_experiment_runs(experiment_id=experiment.id)
             current = runs[0] if runs else None
@@ -154,9 +161,32 @@ class ValidationRunner:
                 }
             )
             self.engine.record_experiment_run(running, event_type="experiment.started")
+
+            if executor_requires_cash:
+                try:
+                    self.cash.reserve_for_run(running, experiment)
+                except (EnvelopeConflict, EnvelopeExceeded) as exc:
+                    ready = running.model_copy(
+                        update={
+                            "status": ExperimentRunStatus.READY,
+                            "error": f"cash_reservation_failed: {exc}",
+                            "updated_at": utc_now(),
+                        }
+                    )
+                    self.engine.record_experiment_run(
+                        ready,
+                        event_type="experiment.deferred_cash",
+                    )
+                    return ExecutionOutcome(run=ready)
+
             try:
                 execution = executor.execute(experiment, opportunity, running)
             except BudgetExceeded:
+                if executor_requires_cash:
+                    self.cash.release_for_run(
+                        running.id,
+                        reason="model budget exhausted before successful external dispatch",
+                    )
                 ready = running.model_copy(
                     update={
                         "status": ExperimentRunStatus.READY,
@@ -167,6 +197,11 @@ class ValidationRunner:
                 self.engine.record_experiment_run(ready, event_type="experiment.deferred")
                 raise
             except Exception as exc:  # noqa: BLE001 -- executor failures are isolated here
+                if executor_requires_cash:
+                    self.cash.release_for_run(
+                        running.id,
+                        reason="external executor failed before successful dispatch",
+                    )
                 failed = running.model_copy(
                     update={
                         "status": ExperimentRunStatus.FAILED,
@@ -193,6 +228,11 @@ class ValidationRunner:
                 self.validation_budget.record_dispatch(experiment)
                 return ExecutionOutcome(run=waiting_result, dispatch=execution)
 
+            if executor_requires_cash:
+                self.cash.settle_for_run(
+                    running.id,
+                    actual_cost_cents=execution.actual_cost_cents,
+                )
             self.engine.record_validation_result(execution)
             completed = running.model_copy(
                 update={
@@ -241,6 +281,14 @@ class ValidationRunner:
         experiment = self.engine.store.get_experiment(run.experiment_id)
         if experiment is None:
             raise ValueError("experiment not found")
+
+        reservation = self.cash.find_for_run(run.id)
+        if reservation is not None:
+            self.cash.settle_for_run(
+                run.id,
+                actual_cost_cents=result.actual_cost_cents,
+            )
+
         self.engine.record_validation_result(result)
         completed = run.model_copy(
             update={
