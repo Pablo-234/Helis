@@ -170,13 +170,16 @@ class OpportunityScout:
                 )
                 for item in valid_observations
             ]
+            tags = list(candidate.tags)
+            if self.online_only and "online_venture" not in tags:
+                tags.append("online_venture")
             problem = Opportunity(
                 title=candidate.title,
                 problem=candidate.problem,
                 customer=candidate.customer,
                 proposed_value=candidate.proposed_value,
                 evidence=evidence,
-                tags=candidate.tags,
+                tags=tags,
             )
             money_models = candidate.money_models
             if self.online_only:
