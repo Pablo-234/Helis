@@ -8,6 +8,7 @@ from helis.bot_architect import ArchitecturePlanReport, BotArchitect
 from helis.builder_machine import BuilderMachine, BuildTickReport
 from helis.cash_reservation import CashReservationManager
 from helis.contact_gateway import ContactGateway
+from helis.domain import VentureStage
 from helis.engine import HelisEngine
 from helis.gtm_lifecycle import gtm_is_active
 from helis.gtm_runtime import GTMRuntime, GTMTickReport
@@ -196,7 +197,7 @@ class VentureRuntime:
         architecture: ArchitecturePlanReport | None = None
         if (
             current is not None
-            and current.stage.value == "validated"
+            and current.stage == VentureStage.VALIDATED
             and current.business_model is not None
         ):
             architecture = BotArchitect(self.engine, self.provider, budget).plan_if_needed(
