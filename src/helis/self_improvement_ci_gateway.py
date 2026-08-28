@@ -107,6 +107,7 @@ class ApprovedSelfImprovementCIGateway:
                 },
                 "constraints": {
                     "read_only": True,
+                    "fresh_attestation_required": True,
                     "same_branch": run.branch_name,
                     "exact_candidate_hash": run.candidate_hash,
                     "required_checks": ["ruff", "pytest"],
@@ -119,7 +120,7 @@ class ApprovedSelfImprovementCIGateway:
         ).encode("utf-8")
         headers = {
             "Content-Type": "application/json",
-            "Idempotency-Key": f"ci:{run.id}",
+            "Cache-Control": "no-cache",
             "X-HELIS-Candidate-SHA256": run.candidate_hash,
             "X-HELIS-Branch": run.branch_name,
         }
