@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 
 import pytest
 
@@ -14,6 +15,9 @@ from helis.domain import (
 from helis.engine import HelisEngine
 from helis.model_provider import ModelResult
 from helis.portfolio import PortfolioAllocator, PortfolioBudget
+from helis.preview_domain import PreviewPublishStatus
+from helis.preview_gateway import PreviewGatewayAck
+from helis.preview_publisher import PreviewPublisher
 from helis.resource_envelope import EnvelopeExceeded, ResourceEnvelopeManager
 from helis.store import HelisStore
 from helis.venture_runtime import VentureRuntime
@@ -27,6 +31,21 @@ class FakeProvider:
     def complete(self, *, system: str, user: str) -> ModelResult:
         self.calls += 1
         return ModelResult(content=json.dumps(self.payloads.pop(0)))
+
+
+@dataclass(slots=True)
+class FakePreviewGateway:
+    safe_destination: str = "https://preview.example.test/publish"
+    name: str = "fake_preview_gateway"
+    calls: int = 0
+
+    def execute(self, run, preview, bundle) -> PreviewGatewayAck:
+        self.calls += 1
+        return PreviewGatewayAck(
+            accepted=True,
+            dispatch_id=f"publish-{run.id}",
+            preview_url="https://venture.example.test/",
+        )
 
 
 def _venture(engine: HelisEngine) -> Opportunity:
@@ -138,6 +157,44 @@ def test_builder_succeeds_when_envelope_has_three_calls(tmp_path) -> None:
     assert engine.store.get_opportunity(opportunity.id).stage == VentureStage.READY_PREVIEW
     current = ResourceEnvelopeManager(engine).get(envelope.id)
     assert current is not None and current.model_calls_consumed == 3
+
+
+def test_advance_waits_for_publication_approval_then_launches_exact_preview(tmp_path) -> None:
+    engine = HelisEngine(HelisStore(tmp_path / "helis.db"))
+    opportunity = _venture(engine)
+    envelope = _envelope(engine, calls=4)
+    provider = FakeProvider(_builder_payloads())
+    gateway = FakePreviewGateway()
+    runtime = VentureRuntime(
+        engine,
+        provider,
+        envelope.id,
+        workspace_root=tmp_path / "workspaces",
+        preview_gateway=gateway,
+    )
+    built = runtime.build()
+    assert built.build is not None and built.build.preview is not None
+    assert provider.calls == 3
+
+    waiting = runtime.advance()
+    assert waiting.publication is not None
+    assert waiting.publication.run is not None
+    assert waiting.publication.run.status == PreviewPublishStatus.WAITING_APPROVAL
+    assert waiting.publication.reason == "publication_waiting_approval"
+    assert gateway.calls == 0
+    assert engine.store.get_opportunity(opportunity.id).stage == VentureStage.READY_PREVIEW
+
+    PreviewPublisher(engine, workspace_root=tmp_path / "workspaces").approve(
+        waiting.publication.run.id
+    )
+    launched = runtime.advance()
+
+    assert launched.publication is not None
+    assert launched.publication.publication is not None
+    assert launched.publication.publication.preview_url == "https://venture.example.test/"
+    assert gateway.calls == 1
+    assert provider.calls == 3
+    assert engine.store.get_opportunity(opportunity.id).stage == VentureStage.LAUNCHED
 
 
 def test_validation_cash_cap_cannot_exceed_remaining_envelope(tmp_path) -> None:

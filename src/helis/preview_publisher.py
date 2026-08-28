@@ -92,6 +92,7 @@ class PreviewPublisher:
         run = self._require_run(run_id)
         existing = self.state.get_publication_for_run(run.id)
         if existing is not None:
+            self._mark_launched(existing)
             return existing
         if run.status != PreviewPublishStatus.READY or not run.approval_granted:
             raise PreviewPublicationError("preview publication requires a ready approved run")
@@ -157,7 +158,32 @@ class PreviewPublisher:
                 },
             )
         )
+        self._mark_launched(publication)
         return publication
+
+    def _mark_launched(self, publication: PublishedPreview) -> None:
+        opportunity = self.engine.store.get_opportunity(publication.opportunity_id)
+        if opportunity is None:
+            raise PreviewPublicationError("published venture no longer exists")
+        if opportunity.stage == VentureStage.LAUNCHED:
+            return
+        if opportunity.stage != VentureStage.READY_PREVIEW:
+            raise PreviewPublicationError(
+                "published preview can only promote READY_PREVIEW venture to LAUNCHED"
+            )
+        launched = opportunity.model_copy(update={"stage": VentureStage.LAUNCHED})
+        self.engine.store.save_opportunity(launched)
+        self.engine.store.append_event(
+            AuditEvent(
+                event_type="venture.launched",
+                entity_id=opportunity.id,
+                data={
+                    "publication_id": str(publication.id),
+                    "preview_url": publication.preview_url,
+                    "artifact_hash": publication.artifact_hash,
+                },
+            )
+        )
 
     def _block(self, run: PreviewPublishRun, reason: str) -> PublishedPreview:
         blocked = run.model_copy(

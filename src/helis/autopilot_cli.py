@@ -11,6 +11,7 @@ from helis.contact_gateway import ApprovedContactGateway
 from helis.engine import HelisEngine
 from helis.model_provider import OpenAICompatibleProvider
 from helis.portfolio import PortfolioStore
+from helis.preview_gateway import ApprovedPreviewGateway
 from helis.prospect_gateway import ApprovedProspectGateway
 from helis.source_registry import HelisConfig, SourceKind, SourceRegistry, SourceSpec
 from helis.store import HelisStore
@@ -54,6 +55,7 @@ def _operator(
         lambda: _scanner(config),
         workspace_root=workspace_root,
         validation_gateway=ApprovedValidationGateway.from_env(),
+        preview_gateway=ApprovedPreviewGateway.from_env(),
         prospect_gateway=ApprovedProspectGateway.from_env(),
         contact_gateway=ApprovedContactGateway.from_env(),
     )
