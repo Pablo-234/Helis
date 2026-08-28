@@ -27,8 +27,16 @@ class SelfImprovementMergeError(RuntimeError):
 
 
 def ci_attestation_hash(attestation: SelfImprovementCIAttestation) -> str:
+    stable = attestation.model_dump(mode="json", exclude={"attested_at", "checks"})
+    stable["checks"] = sorted(
+        (
+            {"name": item.name.lower(), "passed": item.passed}
+            for item in attestation.checks
+        ),
+        key=lambda item: item["name"],
+    )
     payload = json.dumps(
-        attestation.model_dump(mode="json"),
+        stable,
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
