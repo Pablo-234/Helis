@@ -13,14 +13,14 @@
 - [x] RSS + GitHub issue + Hacker News source adapters
 - [x] configurable source registry
 - [x] cron-safe scheduler wake policy + expiring single-worker lease
-- [ ] scheduled source scanning orchestration
+- [x] scheduled source scanning orchestration with an independent discovery lease
 - [x] processed-observation cursor / no-work zero-call cycles
 - [x] duplicate/opportunity clustering baseline
 - [x] skeptic pass / falsifiable assumptions
 - [x] experiment designer
 - [x] policy-aware experiment ranking
 
-Exit criterion: met for the business-brain cycle. Portfolio execution can be woken safely by cron/systemd. Automatic scheduled source scanning remains an infrastructure enhancement.
+Exit criterion: met. Market discovery and portfolio execution can both be host-woken safely by cron/systemd, each with an independent crash-safe lease and bounded work budget.
 
 ## Phase 1 — Validation machine
 
