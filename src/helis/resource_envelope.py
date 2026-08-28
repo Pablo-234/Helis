@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from datetime import datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
@@ -11,7 +10,7 @@ from helis.budget import BudgetExceeded, CycleBudget
 from helis.domain import AuditEvent, utc_now
 from helis.engine import HelisEngine
 from helis.model_provider import ModelResult
-from helis.portfolio import PortfolioPlan
+from helis.portfolio import PortfolioPlan, PortfolioStore
 from helis.portfolio_value import VentureCostEvent, VentureEconomicsStore
 
 
@@ -68,7 +67,7 @@ class ResourceEnvelopeManager:
     def __init__(self, engine: HelisEngine) -> None:
         self.engine = engine
         self.store = engine.store
-        VentureEconomicsStore(engine).initialize()
+        self.economics = VentureEconomicsStore(engine)
         self.initialize()
 
     def initialize(self) -> None:
@@ -103,6 +102,10 @@ class ResourceEnvelopeManager:
             )
 
     def activate(self, plan: PortfolioPlan) -> list[ResourceEnvelope]:
+        latest = PortfolioStore(self.engine).latest()
+        if latest is None or latest.id != plan.id:
+            raise EnvelopeConflict("only the latest portfolio plan may be activated")
+
         created: list[ResourceEnvelope] = []
         now = utc_now()
         with self.store.connect() as db:
