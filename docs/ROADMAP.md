@@ -43,7 +43,7 @@ Exit criterion: met for an operator-triggered cycle. Scheduled waking remains an
 
 Exit criterion: met at the transport layer when an approved validation gateway is configured.
 
-## Phase 2 — Builder (current)
+## Phase 2 — Builder
 
 - [x] isolated per-venture/per-run workspaces
 - [x] build manifest / bounded product brief
@@ -51,7 +51,10 @@ Exit criterion: met at the transport layer when an approved validation gateway i
 - [x] generated-artifact sandbox with path containment
 - [x] deterministic test-before-preview requirement
 - [x] preview manifest with content hash
-- [ ] actual preview deployment adapter
+- [x] policy-gated preview publication transport
+- [x] hash-lock: only the exact reviewed artifact can be published
+- [x] run-scoped publication approval
+- [x] HTTPS-only operator-configured preview gateway
 - [x] reusable `static_web_v1` and `concierge_ops_v1` templates
 - [x] adversarial model review after deterministic checks
 - [x] shared model budget + per-build file/byte stop conditions
@@ -59,18 +62,21 @@ Exit criterion: met at the transport layer when an approved validation gateway i
 - [x] bounded automatic repair loop with a default two-attempt cap
 - [ ] executable-code sandbox backend with network/resource isolation
 
-Exit criterion: almost met for constrained artifacts. A validated venture can become a tested local preview and repair one failed attempt automatically. Publishing the exact reviewed hash through a policy-gated preview transport is the next slice.
+Exit criterion: met for constrained MVP artifacts. A validated venture can become a verified/reviewed artifact, repair one failed build, and be published through an explicit policy-gated transport without rebuilding or mutating the reviewed bytes. General executable software builders remain a future capability rather than a requirement for entering go-to-market.
 
-## Phase 3 — Go-to-market
+## Phase 3 — Go-to-market (next)
 
-- [ ] prospect discovery
+- [ ] prospect discovery with evidence-bound lead reasons
+- [ ] per-venture CRM/event trail
 - [ ] outreach drafts and approval tiers
+- [ ] bounded contact batches / anti-spam limits
 - [ ] channel experiments
-- [ ] CRM/event trail
 - [ ] pricing experiments
+- [ ] response/result ingestion
 - [ ] revenue attribution
+- [ ] automatic stop/continue rules per acquisition experiment
 
-Exit criterion: a venture can progress from discovered problem to measured first revenue.
+Exit criterion: a venture can progress from reviewed preview to measured first revenue while every customer-facing action remains attributable, bounded and reversible where possible.
 
 ## Phase 4 — Portfolio / capital allocator
 
