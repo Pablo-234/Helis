@@ -54,6 +54,11 @@ HELIS can:
 - qualify leads and draft first-contact outreach without fabricated personalization,
 - enforce tiny contact batches, identity limits, suppression/opt-out state and run-scoped approval,
 - automatically dispatch only outreach runs that were already explicitly approved,
+- automatically plan one bounded offer/pricing A/B experiment after real GTM feedback exists,
+- assign control/variant arms deterministically without increasing the existing contact cap,
+- enforce explicit pricing-arm bounds and per-arm assignment/sample caps,
+- hash-lock the selected experiment arm into the approved outreach draft,
+- calculate experiment outcomes and winners deterministically from persisted replies, meetings, sales and revenue,
 - ingest GTM responses, attribute revenue and derive deterministic **continue / pause / kill / scale** decisions,
 - estimate per-venture economics with currency-separated revenue/cost accounting,
 - allocate shared cash/model capacity across competing ventures,
@@ -109,6 +114,12 @@ helis-scheduler status
 
 `helis-discovery wake` scans configured sources and advances one resumable business-brain cycle. `helis-scheduler wake` advances funded venture execution. Both are safe to invoke more frequently than their actual work cadence because HELIS enforces independent persistent due intervals and singleton leases.
 
+GTM experiment state can be inspected without model or network calls:
+
+```bash
+helis-gtm experiments <OPPORTUNITY_ID>
+```
+
 ## Approved external gateways
 
 HELIS never lets a model choose transport destinations or credentials. External boundaries are separately operator-configured:
@@ -150,15 +161,15 @@ completed
 advance / continue / pivot / kill
 ```
 
-A GTM first contact similarly requires a persisted approved outreach run before the contact gateway can be called. The scheduler can prepare work for approval, but cannot grant that approval to itself.
+A GTM first contact similarly requires a persisted approved outreach run before the contact gateway can be called. The scheduler can prepare work for approval, but cannot grant that approval to itself. Offer/pricing experiments operate **inside** that same approval and contact-cap boundary: the experiment chooses which bounded offer arm is drafted, but it never grants send authority or increases outreach volume.
 
 Gateway destinations must use HTTPS. Plain HTTP is accepted only for explicit localhost development opt-ins.
 
 ## Decision safety
 
-The model can summarize evidence, propose tests, generate bounded artifacts and draft outreach. It does **not** own final venture transitions or authorization boundaries.
+The model can summarize evidence, propose tests, generate bounded artifacts, draft outreach and propose a tightly bounded control/variant offer experiment. It does **not** own final venture transitions or authorization boundaries.
 
-Validation decisions are deterministic outside the model. GTM decisions are derived from persisted outcomes and revenue rather than model preference. Portfolio allocation then uses those measured signals and explicit economics to assign only remaining cash/model capacity.
+Validation decisions are deterministic outside the model. GTM decisions are derived from persisted outcomes and revenue rather than model preference. GTM experiment arm assignment, sample caps, outcome scoring and winner selection are also deterministic outside the model. Portfolio allocation then uses measured signals and explicit economics to assign only remaining cash/model capacity.
 
 Self-improvement is also split across independent trust boundaries: proposal → isolated candidate → immutable evaluation → explicit branch approval → exact green CI → separate merge approval → fresh matching CI → base-locked merge. A stale approval, changed branch head or advanced default branch blocks the merge rather than rebasing or silently applying old code.
 
@@ -174,16 +185,16 @@ Self-improvement is also split across independent trust boundaries: proposal →
 8. **Optimize expected value, not activity** — repeated reads/no-op wakes are not success.
 9. **Durable state beats resident agents** — HELIS can reconstruct its control loops after a crash or reboot.
 10. **Discovery and execution fail independently** — source scanning and portfolio work use separate leases.
+11. **Experiment inside existing authority** — A/B testing cannot expand contact volume or bypass approval gates.
 
 ## Current boundary
 
-HELIS now covers the constrained autonomous path from recurring market observation through discovery, validation, MVP artifact building, bounded B2B GTM, measured revenue/economics, portfolio scheduling/reallocation and controlled self-improvement.
+HELIS now covers the constrained autonomous path from recurring market observation through discovery, validation, MVP artifact building, bounded B2B GTM, bounded offer/pricing experimentation, measured revenue/economics, portfolio scheduling/reallocation and controlled self-improvement.
 
 Still intentionally separate or incomplete:
 
 - native direct email/SMS/social channel implementations,
 - automatic multi-channel acquisition experimentation,
-- automatic pricing experimentation,
 - general arbitrary executable-code builders,
 - direct payment authority,
 - silent production deployment.
