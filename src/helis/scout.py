@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from helis.budget import CycleBudget
 from helis.domain import (
     BusinessModelHypothesis,
+    DeliveryModel,
     Evidence,
     EvidenceKind,
     Observation,
@@ -88,11 +89,42 @@ Return JSON only in this shape:
 }
 """
 
+ONLINE_ONLY_PROMPT = """
+
+ONLINE-VENTURE MODE IS ACTIVE.
+Every persisted money model must be an online business that can be sold and primarily delivered from
+an internet-connected computer. Prefer software, AI/automation services, remote managed services,
+data/information products, licensing, marketplaces and digital media.
+Do not propose ventures that depend on physical inventory, manufacturing, food, transport, property,
+on-site labor, local presence or other location-dependent physical fulfillment.
+Use only delivery_model values that clearly fit remote online delivery; do not use physical_ops or
+hybrid in this mode.
+"""
+
+ONLINE_DELIVERY_MODELS = frozenset(
+    {
+        DeliveryModel.AI_AGENT_SERVICE,
+        DeliveryModel.MANAGED_SERVICE,
+        DeliveryModel.SOFTWARE,
+        DeliveryModel.AUTOMATION,
+        DeliveryModel.DATA_PRODUCT,
+        DeliveryModel.MARKETPLACE,
+        DeliveryModel.CONTENT_MEDIA,
+    }
+)
+
 
 class OpportunityScout:
-    def __init__(self, provider: ModelProvider, budget: CycleBudget | None = None) -> None:
+    def __init__(
+        self,
+        provider: ModelProvider,
+        budget: CycleBudget | None = None,
+        *,
+        online_only: bool = False,
+    ) -> None:
         self.provider = provider
         self.budget = budget or CycleBudget()
+        self.online_only = online_only
 
     def discover(self, observations: list[Observation]) -> list[Opportunity]:
         if not observations:
@@ -109,8 +141,9 @@ class OpportunityScout:
             }
             for item in observations
         ]
+        system_prompt = SYSTEM_PROMPT + (ONLINE_ONLY_PROMPT if self.online_only else "")
         result = self.provider.complete(
-            system=SYSTEM_PROMPT,
+            system=system_prompt,
             user="OBSERVATIONS:\n" + json.dumps(payload, ensure_ascii=False),
         )
         self.budget.record(result)
@@ -145,11 +178,14 @@ class OpportunityScout:
                 evidence=evidence,
                 tags=candidate.tags,
             )
-            if candidate.money_models:
-                opportunities.extend(
-                    expand_problem_opportunity(problem, candidate.money_models, limit=3)
-                )
-            else:
+            money_models = candidate.money_models
+            if self.online_only:
+                money_models = [
+                    item for item in money_models if item.delivery_model in ONLINE_DELIVERY_MODELS
+                ]
+            if money_models:
+                opportunities.extend(expand_problem_opportunity(problem, money_models, limit=3))
+            elif not self.online_only:
                 # Backward-compatible fallback for old providers/fixtures. New prompts should
                 # normally produce explicit money models before an Opportunity is persisted.
                 opportunities.append(problem)
