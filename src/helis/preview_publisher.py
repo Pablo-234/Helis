@@ -4,7 +4,14 @@ from pathlib import Path
 from uuid import UUID
 
 from helis.builder_sandbox import BuildSandbox, UnsafeBuildArtifact, bundle_hash
-from helis.domain import AuditEvent, BuildReviewVerdict, BuildStatus, PreviewManifest, VentureStage, utc_now
+from helis.domain import (
+    AuditEvent,
+    BuildReviewVerdict,
+    BuildStatus,
+    PreviewManifest,
+    VentureStage,
+    utc_now,
+)
 from helis.engine import HelisEngine
 from helis.policy import ActionKind, ActionRequest, AutonomyPolicy
 from helis.preview_domain import PreviewPublishRun, PreviewPublishStatus, PublishedPreview
@@ -109,7 +116,7 @@ class PreviewPublisher:
 
         try:
             ack = self.gateway.execute(run, preview, bundle)
-        except Exception as exc:  # noqa: BLE001 - external side-effect boundary is isolated here
+        except Exception as exc:
             failed = run.model_copy(
                 update={
                     "status": PreviewPublishStatus.FAILED,
