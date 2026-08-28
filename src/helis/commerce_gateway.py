@@ -62,7 +62,7 @@ def _validate_gateway_url(url: str, *, allow_insecure_local: bool = False) -> No
     )
 
 
-def _validate_checkout_url(url: str) -> None:
+def validate_checkout_url(url: str) -> None:
     parsed = urlsplit(url)
     if parsed.scheme != "https" or not parsed.hostname:
         raise CommerceGatewayConfigurationError("checkout URL returned by gateway must use HTTPS")
@@ -120,7 +120,7 @@ class ApprovedCommerceGateway:
         ack = CheckoutGatewayAck.model_validate(response)
         if not ack.accepted:
             raise RuntimeError("commerce gateway rejected checkout creation")
-        _validate_checkout_url(ack.checkout_url)
+        validate_checkout_url(ack.checkout_url)
         return ack
 
     def poll_payment(self, binding: CheckoutBinding) -> PaymentGatewayResult | None:
@@ -133,16 +133,19 @@ class ApprovedCommerceGateway:
                     "external_ref": binding.external_ref,
                     "offer_hash": binding.offer_hash,
                 },
-            },
-            idempotency_key=f"poll:{binding.id}",
+            }
         )
         return PaymentPollResponse.model_validate(response).result
 
-    def _post(self, payload: dict[str, object], *, idempotency_key: str) -> dict[str, object]:
-        headers = {
-            "Content-Type": "application/json",
-            "Idempotency-Key": idempotency_key,
-        }
+    def _post(
+        self,
+        payload: dict[str, object],
+        *,
+        idempotency_key: str | None = None,
+    ) -> dict[str, object]:
+        headers = {"Content-Type": "application/json"}
+        if idempotency_key is not None:
+            headers["Idempotency-Key"] = idempotency_key
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         request = Request(
