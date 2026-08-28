@@ -57,9 +57,12 @@ class AgentSpecPolicy:
                     raise UnsafeAgentSpec(
                         f"child-agent {key} tool action {tool.action.value} exceeds capability authority"
                     )
-                if tool.credential_alias is not None and tool.action != ActionKind.CREDENTIAL_ACCESS:
+                if (
+                    tool.credential_alias is not None
+                    and ActionKind.CREDENTIAL_ACCESS not in allowed_actions
+                ):
                     raise UnsafeAgentSpec(
-                        f"child-agent {key} credential alias requires credential_access action"
+                        f"child-agent {key} credential alias exceeds capability authority"
                     )
 
             if spec.max_tool_calls_per_run == 0 and spec.allowed_tools:
