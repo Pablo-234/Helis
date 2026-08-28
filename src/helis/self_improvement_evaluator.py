@@ -5,7 +5,10 @@ from helis.self_improvement_domain import (
     SelfImprovementEvaluation,
     SelfImprovementProposal,
 )
-from helis.self_improvement_gateway import SelfImprovementEvaluationGateway
+from helis.self_improvement_gateway import (
+    EvaluationGatewayResponse,
+    SelfImprovementEvaluationGateway,
+)
 from helis.self_improvement_sandbox import SelfImprovementSandbox
 
 
@@ -37,6 +40,10 @@ class SelfImprovementEvaluator:
         if response.metric_name != proposal.metric_name:
             raise SelfImprovementEvaluationError("evaluation response metric does not match proposal")
 
+        expected_baseline = {item.path: item.original_sha256 for item in candidate.files}
+        if response.baseline_file_hashes != expected_baseline:
+            raise SelfImprovementEvaluationError("evaluation baseline hashes do not match candidate source")
+
         accepted, reason = self._decision(proposal, response)
         return SelfImprovementEvaluation(
             proposal_id=proposal.id,
@@ -51,7 +58,10 @@ class SelfImprovementEvaluator:
         )
 
     @staticmethod
-    def _decision(proposal, response) -> tuple[bool, str]:
+    def _decision(
+        proposal: SelfImprovementProposal,
+        response: EvaluationGatewayResponse,
+    ) -> tuple[bool, str]:
         if not response.baseline.passed:
             return False, "baseline evaluation is unhealthy; candidate cannot be credited"
         if response.baseline.test_count <= 0:
