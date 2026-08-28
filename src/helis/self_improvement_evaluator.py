@@ -80,13 +80,9 @@ class SelfImprovementEvaluator:
             return False, "candidate introduced evaluator-reported regressions"
         improvement = response.candidate.metric_value - response.baseline.metric_value
         if improvement < proposal.minimum_improvement:
-            return (
-                False,
-                f"metric improvement {improvement:.6g} is below required "
-                f"{proposal.minimum_improvement:.6g}",
-            )
-        return (
-            True,
-            f"candidate passed immutable tests and improved {proposal.metric_name} "
-            f"by {improvement:.6g}",
-        )
+            reason = f"metric improvement {improvement:.6g} is below required "
+            reason += f"{proposal.minimum_improvement:.6g}"
+            return False, reason
+        reason = f"candidate passed immutable tests and improved {proposal.metric_name} "
+        reason += f"by {improvement:.6g}"
+        return True, reason
