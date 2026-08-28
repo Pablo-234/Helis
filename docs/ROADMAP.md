@@ -110,9 +110,14 @@ Exit criterion: met for the bounded constrained venture path. HELIS can rank com
 
 ## Phase 5 — Controlled self-improvement
 
-- [ ] HELIS can propose patches to itself
-- [ ] every patch runs in a branch/sandbox
-- [ ] eval suite compares old vs new behavior
-- [ ] merge only after measurable improvement and policy approval
+- [x] HELIS can propose bounded low-risk patches to itself
+- [x] every candidate is materialized only in an isolated hash-locked sandbox
+- [x] immutable eval suite compares exact baseline vs candidate behavior
+- [x] baseline source hashes + candidate hash must be attested by evaluator
+- [x] candidate cannot add imports, dependencies, tests or touch authority/guardrail files
+- [x] no-signal cycles make zero model calls
+- [x] evaluation requires measurable higher-is-better improvement with no reported regressions
+- [ ] explicit SELF_MODIFY approval + reviewed branch materialization
+- [ ] merge only after measurable improvement, green CI and policy approval
 
-No silent live self-rewrite.
+No silent live self-rewrite. The current Phase-5 boundary ends at `WAITING_MERGE_APPROVAL`; no merge/apply operation exists yet.
