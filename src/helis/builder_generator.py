@@ -20,12 +20,20 @@ class BuildBundlePayload(BaseModel):
 
 SYSTEM_PROMPT = """You are HELIS Constrained MVP Builder.
 Generate only the text files allowed by the supplied template. Do not output shell commands.
-Do not add dependencies, package manifests, executable server code, external scripts, iframes,
-tracking pixels, remote form actions, API keys, credentials or secrets. Do not fabricate customer
-counts, revenue, testimonials, endorsements, certifications or research results.
-For static_web_v1, build a clear honest offer page suitable for local preview.
+Do not add dependencies, package manifests, external scripts, tracking pixels, remote form actions,
+API keys, credentials or secrets. Do not fabricate customer counts, revenue, testimonials,
+endorsements, certifications or research results.
+For static_web_v1, build a clear honest offer page suitable for local preview and do not add active
+external content.
 For concierge_ops_v1, build a practical manual operating kit that can deliver the value before
 software exists.
+For python_service_v1, build exactly a tiny dependency-free Python workflow core plus tests:
+- app.py must expose handle(request: dict) -> dict and have no top-level side effects;
+- use only the Python standard-library modules permitted by the supplied sandbox contract;
+- do not access network, subprocesses, environment variables, filesystem, clocks or randomness;
+- test_app.py must use unittest and directly exercise handle with meaningful success/failure cases;
+- README.md must explain the bounded input/output contract and local sandbox-only status;
+- do not create a server listener, daemon, shell command, installer or deployment configuration.
 Return JSON only: {"files":[{"path":"...","content":"..."}]}.
 """
 
@@ -54,6 +62,18 @@ class BuilderGenerator:
                     "build_spec": spec.model_dump(mode="json"),
                     "allowed_paths": sorted(definition.allowed_paths),
                     "required_paths": sorted(definition.required_paths),
+                    "sandbox_contract": (
+                        {
+                            "entrypoint": "app.py:handle(request: dict) -> dict",
+                            "runtime": "python-3.12-stdlib-only",
+                            "network": "none",
+                            "filesystem": "read-only generated workspace; no application file IO",
+                            "processes": "no child processes",
+                            "test_runner": "fixed unittest discovery; model cannot choose command",
+                        }
+                        if definition.requires_execution
+                        else None
+                    ),
                 },
                 ensure_ascii=False,
             ),
