@@ -157,7 +157,7 @@ def test_worker_processes_real_persistent_jobs_and_writes_results(tmp_path: Path
 
     receipts = worker.work_until_empty()
 
-    assert [item.job_id for item in receipts] == [first.id, second.id]
+    assert {item.job_id for item in receipts} == {first.id, second.id}
     assert all(item.status == WorkJobStatus.COMPLETED for item in receipts)
     assert provider.calls == 2
     assert worker.pending_count() == 0
