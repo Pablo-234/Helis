@@ -12,7 +12,7 @@ from helis.domain import AuditEvent, Opportunity, ValidationResult, VentureStage
 from helis.engine import HelisEngine
 from helis.model_provider import ModelProvider
 from helis.venture_architecture_domain import CapabilityNode, VentureArchitecture
-from helis.venture_architecture_policy import UnsafeVentureArchitecture, VentureArchitecturePolicy
+from helis.venture_architecture_policy import VentureArchitecturePolicy
 from helis.venture_architecture_store import VentureArchitectureStore
 
 
@@ -175,10 +175,7 @@ class BotArchitect:
         )
         self.budget.record(result)
         payload = ArchitecturePayload.model_validate_json(result.content)
-        try:
-            self.policy.validate(payload.capabilities)
-        except UnsafeVentureArchitecture:
-            raise
+        self.policy.validate(payload.capabilities)
 
         architecture = VentureArchitecture(
             opportunity_id=opportunity.id,
