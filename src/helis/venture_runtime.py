@@ -8,6 +8,7 @@ from helis.agent_spec_planner import AgentSpecPlanner, AgentSpecPlanReport
 from helis.bot_architect import ArchitecturePlanReport, BotArchitect
 from helis.builder_machine import BuilderMachine, BuildTickReport
 from helis.cash_reservation import CashReservationManager
+from helis.child_agent_factory import ChildAgentFactory, ChildAgentFactoryReport
 from helis.contact_gateway import ContactGateway
 from helis.domain import VentureStage
 from helis.engine import HelisEngine
@@ -34,6 +35,7 @@ class VentureRuntimeReport:
     validation: ValidationTickReport | None = None
     architecture: ArchitecturePlanReport | None = None
     agent_specs: AgentSpecPlanReport | None = None
+    agents: ChildAgentFactoryReport | None = None
     build: BuildTickReport | None = None
     gtm: GTMTickReport | None = None
 
@@ -41,6 +43,8 @@ class VentureRuntimeReport:
     def did_work(self) -> bool:
         if self.gtm is not None:
             return self.gtm.did_work
+        if self.agents is not None and self.build is None:
+            return self.agents.did_work
         if self.agent_specs is not None and self.build is None:
             return self.agent_specs.did_work
         if self.architecture is not None and self.build is None:
@@ -58,6 +62,7 @@ class VentureRuntime:
         envelope_id: UUID,
         *,
         workspace_root: str | Path = ".helis/workspaces",
+        agent_workspace_root: str | Path = ".helis/ventures",
         validation_gateway: ApprovedValidationGateway | None = None,
         prospect_gateway: ProspectGateway | None = None,
         contact_gateway: ContactGateway | None = None,
@@ -77,6 +82,7 @@ class VentureRuntime:
         self.envelope_id = envelope_id
         self.opportunity_id = envelope.opportunity_id
         self.workspace_root = Path(workspace_root)
+        self.agent_workspace_root = Path(agent_workspace_root)
         self.validation_gateway = validation_gateway
         self.prospect_gateway = prospect_gateway
         self.contact_gateway = contact_gateway
@@ -200,6 +206,7 @@ class VentureRuntime:
         current = self.engine.store.get_opportunity(self.opportunity_id)
         architecture: ArchitecturePlanReport | None = None
         agent_specs: AgentSpecPlanReport | None = None
+        agents: ChildAgentFactoryReport | None = None
         if (
             current is not None
             and current.stage == VentureStage.VALIDATED
@@ -243,6 +250,20 @@ class VentureRuntime:
                     agent_specs=agent_specs,
                 )
 
+            agents = ChildAgentFactory(
+                self.engine,
+                workspace_root=self.agent_workspace_root,
+            ).materialize_if_needed(self.opportunity_id)
+            if agents.blocked_reason is not None or agents.did_work:
+                return VentureRuntimeReport(
+                    envelope=self._require_envelope(),
+                    budget=budget,
+                    validation=validation,
+                    architecture=architecture,
+                    agent_specs=agent_specs,
+                    agents=agents,
+                )
+
         build = BuilderMachine(
             self.engine,
             self.provider,
@@ -255,6 +276,7 @@ class VentureRuntime:
             validation=validation,
             architecture=architecture,
             agent_specs=agent_specs,
+            agents=agents,
             build=build,
         )
 
