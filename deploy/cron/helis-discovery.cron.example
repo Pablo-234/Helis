@@ -1,0 +1,4 @@
+# Invoke every 15 minutes; HELIS itself enforces the one-hour discovery interval
+# plus its independent market-discovery lease, so overlap and crash retries remain bounded.
+# The env file is explicitly sourced because cron does not understand systemd EnvironmentFile=.
+*/15 * * * * set -a; . "$HOME/.config/helis/helis.env"; set +a; cd "$HOME/Helis" && mkdir -p "$HOME/Helis/.helis" && "$HOME/Helis/.venv/bin/helis-discovery" wake --config "$HOME/Helis/helis.toml" --db "$HOME/Helis/helis.db" --minimum-interval-seconds 3600 --lease-seconds 900 --observation-limit 100 --candidate-limit 5 --max-model-calls 8 --max-tokens 40000 --max-cost-cents 25 >> "$HOME/Helis/.helis/discovery.log" 2>&1
