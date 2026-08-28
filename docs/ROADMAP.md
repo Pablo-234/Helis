@@ -75,14 +75,16 @@ Exit criterion: met for constrained MVP artifacts. A validated venture can becom
 - [x] scheduler-driven bounded GTM preparation/approved dispatch
 - [x] GTM lifecycle remains active while measuring/scaling
 - [x] adaptive backoff for repeated no-op acquisition wakes
+- [x] bounded automatic offer A/B experiments inside the existing contact cap
+- [x] automatic pricing experiments with explicit bounded price arms
+- [x] deterministic arm assignment, sample caps and winner calculation from real outcomes
 - [ ] automatic multi-channel acquisition experiments
-- [ ] automatic pricing experiments
 - [x] response/result ingestion
 - [x] revenue attribution
 - [x] deterministic continue / pause / kill / scale rules over measured GTM outcomes
-- [x] crash-safe response → GTM decision refresh before portfolio allocation
+- [x] crash-safe response → GTM experiment/decision refresh before portfolio allocation
 
-Exit criterion: core path met. A venture can progress from reviewed preview to bounded first contact, measured response and attributed first revenue, then receive an evidence-based GTM allocation decision. Automatic channel/pricing experimentation remains a later enhancement.
+Exit criterion: core path met. A venture can progress from reviewed preview to bounded first contact, measured response and attributed first revenue, then test a small offer/pricing variation without increasing contact volume and receive evidence-based GTM/portfolio decisions. Automatic experimentation across different acquisition channels remains a later enhancement.
 
 ## Phase 4 — Portfolio / capital allocator
 
