@@ -1,0 +1,22 @@
+[Unit]
+Description=HELIS bounded autonomous market discovery wake
+Documentation=https://github.com/Pablo-234/Helis
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Helis
+EnvironmentFile=-%h/.config/helis/helis.env
+ExecStart=%h/Helis/.venv/bin/helis-discovery wake --config %h/Helis/helis.toml --db %h/Helis/helis.db --minimum-interval-seconds 3600 --lease-seconds 900 --observation-limit 100 --candidate-limit 5 --max-model-calls 8 --max-tokens 40000 --max-cost-cents 25
+TimeoutStartSec=15min
+UMask=0077
+Nice=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/Helis
+
+[Install]
+WantedBy=default.target

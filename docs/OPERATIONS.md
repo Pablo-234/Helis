@@ -1,20 +1,25 @@
 # HELIS operations
 
-This guide turns the bounded scheduler into a host-managed autonomous process. HELIS itself does **not** run an unbounded resident loop. The host wakes it periodically; HELIS decides whether work is due, acquires a crash-safe lease, reconciles portfolio state and advances only bounded eligible work.
+This guide turns HELIS into a host-managed autonomous process without an unbounded resident agent loop. The host periodically invokes two independent bounded control loops:
+
+1. `helis-discovery wake` — scans configured market sources and advances the resumable business-brain cycle;
+2. `helis-scheduler wake` — reconciles the funded portfolio and advances bounded eligible venture work.
+
+Each loop has its own durable due interval and expiring singleton lease. A stuck market source therefore cannot become the portfolio scheduler's lock, and a busy portfolio tick cannot prevent fresh market discovery.
 
 ## Recommended Linux layout
-
-The reference service assumes:
 
 ```text
 ~/Helis/                         repository + virtualenv
 ~/Helis/helis.db                durable SQLite state
+~/Helis/helis.toml              market source configuration
 ~/Helis/.helis/workspaces/      generated venture workspaces
+~/Helis/.helis/self-improvement/ isolated self-improvement candidates
 ~/.config/helis/helis.env       model/gateway configuration
 ~/.config/systemd/user/         user systemd units
 ```
 
-If the repository lives elsewhere, edit `WorkingDirectory`, `ExecStart` and `ReadWritePaths` in the service file.
+If the repository lives elsewhere, edit `WorkingDirectory`, `ExecStart` and `ReadWritePaths` in the service files.
 
 ## 1. Install HELIS
 
@@ -24,14 +29,14 @@ cd ~/Helis
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
-mkdir -p ~/.config/helis .helis/workspaces
+mkdir -p ~/.config/helis .helis/workspaces .helis/self-improvement
 cp deploy/helis.env.example ~/.config/helis/helis.env
 chmod 600 ~/.config/helis/helis.env
 ```
 
-Edit `~/.config/helis/helis.env`. The default LLM target is the local OpenAI-compatible endpoint `http://localhost:11434/v1` using `qwen3.5:9b`. External validation, prospect and contact gateways are optional and remain separately operator-configured.
+Edit `~/.config/helis/helis.env`. The default LLM target is the local OpenAI-compatible endpoint `http://localhost:11434/v1` using `qwen3.5:9b`. External gateways remain separately operator-configured.
 
-Run the zero-side-effect preflight:
+Run both zero-side-effect preflights:
 
 ```bash
 cd ~/Helis
@@ -39,24 +44,48 @@ source .venv/bin/activate
 set -a
 . ~/.config/helis/helis.env
 set +a
+helis-discovery health
 helis-scheduler health
 ```
 
-`health` does not call a model, gateway, customer, or payment system.
+Neither health command scans the network, calls the model, contacts a customer, publishes, spends money or mutates a venture.
 
-## 2. Recommended: systemd user timer
+## 2. Recommended: systemd user timers
 
-Install the reference units:
+Install both reference timer pairs:
 
 ```bash
 mkdir -p ~/.config/systemd/user
+cp ~/Helis/deploy/systemd/helis-discovery.service ~/.config/systemd/user/
+cp ~/Helis/deploy/systemd/helis-discovery.timer ~/.config/systemd/user/
 cp ~/Helis/deploy/systemd/helis-scheduler.service ~/.config/systemd/user/
 cp ~/Helis/deploy/systemd/helis-scheduler.timer ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now helis-scheduler.timer
+systemctl --user enable --now helis-discovery.timer helis-scheduler.timer
 ```
 
-The timer invokes the host service roughly every five minutes. The service itself calls:
+### Market discovery cadence
+
+The discovery timer invokes the oneshot roughly every 15 minutes, while HELIS itself enforces:
+
+```text
+helis-discovery wake
+  --minimum-interval-seconds 3600
+  --lease-seconds 900
+  --observation-limit 100
+  --candidate-limit 5
+  --max-model-calls 8
+  --max-tokens 40000
+  --max-cost-cents 25
+```
+
+So a normal full market scan occurs at most once per hour. More frequent host invocations provide crash recovery after an expired lease without multiplying normal source traffic. Source adapters are isolated individually; one failing feed is recorded while healthy sources can still contribute observations.
+
+After scanning, HELIS always invokes one bounded resumable `HelisCycle`. This matters after a crash: existing unprocessed observations or a pending discovered/evaluated venture can continue even when the latest source scan contains nothing new. When there is genuinely no work, the cycle makes zero model calls.
+
+### Portfolio execution cadence
+
+The scheduler timer invokes roughly every five minutes, while HELIS itself enforces:
 
 ```text
 helis-scheduler wake
@@ -65,83 +94,98 @@ helis-scheduler wake
   --max-advances 2
 ```
 
-So frequent host wakeups do **not** imply frequent work. HELIS enforces its own 15-minute minimum attempt interval, singleton lease, per-tick advance cap, venture resource envelopes, approval gates and adaptive GTM backoff.
+Frequent host wakeups therefore do not imply frequent work. The scheduler still enforces venture resource envelopes, approvals, cash commitments and adaptive GTM backoff.
 
 Useful checks:
 
 ```bash
-systemctl --user status helis-scheduler.timer
-systemctl --user list-timers helis-scheduler.timer
+systemctl --user status helis-discovery.timer helis-scheduler.timer
+systemctl --user list-timers 'helis-*'
+journalctl --user -u helis-discovery.service -n 100 --no-pager
 journalctl --user -u helis-scheduler.service -n 100 --no-pager
+helis-discovery health
 helis-scheduler wake-status
 helis-scheduler status
 helis-scheduler health
 ```
 
-To keep a user timer running while the user is logged out, Linux distributions using systemd-logind can enable lingering:
+To keep user timers running while logged out on systems using systemd-logind:
 
 ```bash
 loginctl enable-linger "$USER"
 ```
 
-This changes host session behavior, so enable it deliberately rather than hiding it inside an install script.
+Enable lingering deliberately; it changes host session behavior and is not hidden inside an install script.
 
 ## 3. Cron fallback
 
-If user systemd is unavailable, use the reference line from `deploy/cron/helis-scheduler.cron.example`.
+If user systemd is unavailable, install the reference lines from:
+
+- `deploy/cron/helis-discovery.cron.example`
+- `deploy/cron/helis-scheduler.cron.example`
 
 ```bash
 crontab -e
 ```
 
-The cron example explicitly sources `~/.config/helis/helis.env`, creates the log directory and invokes `helis-scheduler wake` every five minutes. HELIS still enforces its internal wake interval and lease, so an overlapping cron invocation cannot legitimately become a second scheduler worker.
+Both examples explicitly source `~/.config/helis/helis.env` because cron does not understand systemd `EnvironmentFile=`. The discovery line invokes every 15 minutes but keeps its internal one-hour scan gate; the scheduler line invokes every five minutes but keeps its internal 15-minute work gate.
 
 ## 4. Restart and crash behavior
 
-The scheduler is intentionally restart-safe:
+HELIS is intentionally restart-safe:
 
-- durable venture, GTM, portfolio, envelope, wake and backoff state live in SQLite;
-- a scheduler lease expires after its TTL if a process dies;
+- durable observations, ventures, GTM, portfolio, envelope, wake and backoff state live in SQLite;
+- discovery and portfolio scheduling use separate expiring leases;
+- unprocessed observations survive a model-budget exhaustion or process crash;
+- duplicate source observations are idempotent through deterministic observation IDs/store inserts;
 - duplicate external dispatches use persisted idempotency keys;
 - open cash commitments block unsafe envelope rollover;
 - reviewed preview bytes remain hash-locked;
-- GTM outcomes are refreshed before capital reallocation;
-- adaptive no-op cooldowns are fingerprint-bound and reset immediately after relevant state changes.
+- GTM outcomes refresh before capital reallocation;
+- adaptive no-op cooldowns are fingerprint-bound and reset after relevant state changes;
+- controlled self-improvement candidates remain hash-bound across evaluation, review branch, CI and final merge gates.
 
-A machine reboot therefore requires no in-memory agent process to survive. The next timer/cron invocation reconstructs the control loop from durable state.
+A reboot requires no in-memory agent process to survive. The next timer/cron invocation reconstructs each control loop from durable state.
 
 ## 5. Logs and state
 
-Systemd logs go to the user journal. Cron fallback logs to `~/Helis/.helis/scheduler.log`.
+Systemd logs go to the user journal. Cron fallback logs to:
 
-The SQLite database is the authoritative operational state. Back it up while no write is in progress, or use a SQLite-aware backup procedure. Do not copy only workspace files and assume HELIS can reconstruct approvals, cash reservations, revenue attribution or idempotency state from them.
+```text
+~/Helis/.helis/discovery.log
+~/Helis/.helis/scheduler.log
+```
+
+SQLite is the authoritative operational state. Back it up while no write is in progress, or use a SQLite-aware backup procedure. Workspace files alone cannot reconstruct approvals, cash reservations, revenue attribution, wake leases or idempotency state.
 
 ## 6. Security boundaries that remain in force
 
-Running HELIS from a timer does not increase its authority:
+Running HELIS from timers does not increase its authority:
 
-- external contact still requires a persisted run-scoped approval by default;
-- publication still requires its existing approval/hash boundary;
+- market scanning is `NETWORK_READ` and is still policy-evaluated per configured source;
+- external contact still requires persisted run-scoped approval by default;
+- publication keeps its approval/hash boundary;
 - cash reservations authorize capacity but do not themselves perform payment;
 - the model cannot choose gateway destinations or credentials;
-- killed/paused ventures do not receive fresh portfolio allocation;
-- scheduler cooldowns cannot manufacture approval or resource capacity;
-- self-modification is still prohibited from silently changing the live process.
+- killed/paused ventures receive no fresh portfolio allocation;
+- scheduler/discovery leases cannot manufacture approval or resource capacity;
+- self-improvement requires isolated candidate evaluation, explicit review-branch approval, green exact-branch CI, a second merge approval and fresh pre-merge attestation.
 
-The supplied systemd unit also uses a restrictive umask, `NoNewPrivileges`, a private `/tmp`, a read-only home view and a single explicit writable HELIS repository path.
+The supplied systemd services also use restrictive umasks, `NoNewPrivileges`, private `/tmp`, a read-only home view and one explicit writable HELIS repository path.
 
 ## 7. Updating HELIS
 
-Stop automatic wakes before changing the installed code:
+Stop both automatic wake sources before changing installed code:
 
 ```bash
-systemctl --user stop helis-scheduler.timer
+systemctl --user stop helis-discovery.timer helis-scheduler.timer
 cd ~/Helis
 git pull
 source .venv/bin/activate
 pip install -e .
+helis-discovery health
 helis-scheduler health
-systemctl --user start helis-scheduler.timer
+systemctl --user start helis-discovery.timer helis-scheduler.timer
 ```
 
-For development, keep using branches + CI rather than editing the live checkout underneath an executing scheduler wake.
+For development, keep using branches + CI rather than editing the live checkout underneath an executing wake.
