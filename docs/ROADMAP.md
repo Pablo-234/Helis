@@ -62,9 +62,12 @@ Exit criterion: met at the transport layer when an approved validation gateway i
 - [x] shared model budget + per-build file/byte stop conditions
 - [x] explicit promotion from `validated` → `building` → `ready_preview`
 - [x] bounded automatic repair loop with a default two-attempt cap
-- [ ] executable-code sandbox backend with network/resource isolation
+- [x] constrained `python_service_v1` executable template behind an operator-enabled sandbox
+- [x] executable-code sandbox backend with external network disabled and hard memory/CPU/PID/time limits
+- [x] fixed non-shell unittest command, read-only generated workspace and non-root/cap-drop container execution
+- [x] AST defense-in-depth for imports, introspection, top-level side effects and minimum test behavior
 
-Exit criterion: met for constrained MVP artifacts. A validated venture can become a verified/reviewed artifact, repair one failed build, and be published through an explicit policy-gated transport without rebuilding or mutating the reviewed bytes. General executable software builders remain a future capability rather than a requirement for entering go-to-market.
+Exit criterion: met for constrained MVP artifacts including one dependency-free executable workflow core. A validated venture can become a verified/reviewed static, concierge or sandbox-tested Python artifact, repair one failed build, and reach hash-locked preview without giving the model shell/runtime authority. General arbitrary executable software, dependencies, production deployment and networked services remain outside this builder boundary.
 
 ## Phase 3 — Go-to-market
 

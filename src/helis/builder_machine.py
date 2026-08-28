@@ -5,9 +5,14 @@ from pathlib import Path
 from uuid import UUID
 
 from helis.budget import BudgetExceeded, CycleBudget
+from helis.build_execution import (
+    BuildExecutionBackend,
+    BuildExecutionError,
+    DockerBuildExecutionBackend,
+)
 from helis.build_templates import get_template
 from helis.builder_generator import BuilderGenerator, BuildGenerationError
-from helis.builder_planner import BuilderPlanner
+from helis.builder_planner import BuilderPlanner, BuildPlanningError
 from helis.builder_repair import BuilderRepairer
 from helis.builder_review import AdversarialBuildReviewer
 from helis.builder_sandbox import BuildSandbox, BuildVerifier, UnsafeBuildArtifact, bundle_hash
@@ -19,6 +24,7 @@ from helis.domain import (
     BuildRun,
     BuildSpec,
     BuildStatus,
+    BuildTemplate,
     Opportunity,
     PreviewManifest,
     VentureStage,
@@ -50,12 +56,25 @@ class BuilderMachine:
         *,
         workspace_root: str | Path = ".helis/workspaces",
         max_attempts: int = 2,
+        execution_backend: BuildExecutionBackend | None = None,
     ) -> None:
         if max_attempts < 1 or max_attempts > 3:
             raise ValueError("max_attempts must be between 1 and 3")
         self.engine = engine
         self.budget = budget
-        self.planner = BuilderPlanner(provider, budget)
+        self.execution_backend = (
+            execution_backend
+            if execution_backend is not None
+            else DockerBuildExecutionBackend.from_env()
+        )
+        enabled_templates = {BuildTemplate.STATIC_WEB, BuildTemplate.CONCIERGE_OPS}
+        if self.execution_backend is not None:
+            enabled_templates.add(BuildTemplate.PYTHON_SERVICE)
+        self.planner = BuilderPlanner(
+            provider,
+            budget,
+            enabled_templates=enabled_templates,
+        )
         self.generator = BuilderGenerator(provider, budget)
         self.repairer = BuilderRepairer(provider, budget)
         self.reviewer = AdversarialBuildReviewer(provider, budget)
@@ -86,9 +105,15 @@ class BuilderMachine:
                     opportunity_id=opportunity.id,
                     model_budget_exhausted=True,
                 )
+            except BuildPlanningError as exc:
+                return BuildTickReport(
+                    opportunity_id=opportunity.id,
+                    blocked_reason=str(exc),
+                )
             self.engine.record_build_spec(spec)
             opportunity = self.engine.store.get_opportunity(opportunity.id) or opportunity
 
+        definition = get_template(spec.template)
         runs = self.engine.store.list_build_runs(spec_id=spec.id)
         run = runs[0] if runs else None
         failed_source: BuildRun | None = None
@@ -115,6 +140,19 @@ class BuilderMachine:
         if run is None:
             run = BuildRun(spec_id=spec.id, opportunity_id=opportunity.id)
             self.engine.record_build_run(run, event_type="build.run_planned")
+
+        if (
+            run.status == BuildStatus.PLANNED
+            and definition.requires_execution
+            and self.execution_backend is None
+        ):
+            return BuildTickReport(
+                opportunity_id=opportunity.id,
+                spec=spec,
+                run=run,
+                blocked_reason="executable build sandbox backend is not configured",
+                repair_attempted=repair_attempted,
+            )
 
         checks: list[BuildCheck] | None = None
         if run.status == BuildStatus.PLANNED:
@@ -174,11 +212,56 @@ class BuilderMachine:
                     blocked_reason=str(exc),
                     repair_attempted=repair_attempted,
                 )
+
+            run = run.model_copy(
+                update={
+                    "workspace": str(workspace),
+                    "file_paths": [item.path for item in bundle.files],
+                    "updated_at": utc_now(),
+                }
+            )
+            self.engine.record_build_run(run, event_type="build.workspace_materialized")
+
+            if definition.requires_execution:
+                assert self.execution_backend is not None
+                try:
+                    execution = self.execution_backend.execute(workspace)
+                except BuildExecutionError as exc:
+                    failed = self._fail(run, str(exc), "build.execution_failed")
+                    return BuildTickReport(
+                        opportunity_id=opportunity.id,
+                        spec=spec,
+                        run=failed,
+                        checks=checks,
+                        blocked_reason=str(exc),
+                        repair_attempted=repair_attempted,
+                    )
+                execution_check = BuildCheck(
+                    run_id=run.id,
+                    name="sandbox_execution",
+                    passed=execution.passed,
+                    details=execution.details,
+                )
+                self.engine.record_build_check(execution_check)
+                checks.append(execution_check)
+                if not execution.passed:
+                    failed = self._fail(
+                        run,
+                        "isolated executable build tests failed",
+                        "build.execution_failed",
+                    )
+                    return BuildTickReport(
+                        opportunity_id=opportunity.id,
+                        spec=spec,
+                        run=failed,
+                        checks=checks,
+                        blocked_reason=failed.error,
+                        repair_attempted=repair_attempted,
+                    )
+
             run = run.model_copy(
                 update={
                     "status": BuildStatus.VERIFIED,
-                    "workspace": str(workspace),
-                    "file_paths": [item.path for item in bundle.files],
                     "updated_at": utc_now(),
                 }
             )
@@ -225,7 +308,6 @@ class BuilderMachine:
                     repair_attempted=repair_attempted,
                 )
 
-            definition = get_template(spec.template)
             preview = PreviewManifest(
                 run_id=run.id,
                 opportunity_id=opportunity.id,
