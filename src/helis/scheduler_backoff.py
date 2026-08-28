@@ -5,6 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from helis.domain import AuditEvent
 from helis.engine import HelisEngine
 
 
@@ -43,7 +44,7 @@ class AdaptiveBackoffPolicy:
     def delay_seconds(self, reason: str, consecutive_noops: int) -> int:
         if not self.supports(reason):
             return 0
-        exponent = max(0, consecutive_noops - 1)
+        exponent = min(20, max(0, consecutive_noops - 1))
         return min(
             self._BASE_SECONDS[reason] * (2**exponent),
             self._MAX_SECONDS[reason],
@@ -112,6 +113,7 @@ class AdaptiveSchedulerBackoff:
         engine: HelisEngine,
         policy: AdaptiveBackoffPolicy | None = None,
     ) -> None:
+        self.engine = engine
         self.state = SchedulerBackoffStore(engine)
         self.policy = policy or AdaptiveBackoffPolicy()
 
@@ -124,7 +126,7 @@ class AdaptiveSchedulerBackoff:
         now: datetime | None = None,
     ) -> SchedulerBackoff | None:
         if not self.policy.supports(reason):
-            self.state.clear(opportunity_id)
+            self.clear(opportunity_id)
             return None
         current = (now or datetime.now(UTC)).astimezone(UTC)
         existing = self.state.get(opportunity_id)
@@ -145,6 +147,19 @@ class AdaptiveSchedulerBackoff:
             updated_at=current,
         )
         self.state.save(item)
+        self.engine.store.append_event(
+            AuditEvent(
+                event_type="portfolio.scheduler_backoff",
+                entity_id=opportunity_id,
+                data={
+                    "reason": reason,
+                    "fingerprint": fingerprint,
+                    "consecutive_noops": consecutive,
+                    "delay_seconds": delay,
+                    "next_eligible_at": item.next_eligible_at.isoformat(),
+                },
+            )
+        )
         return item
 
     def skip_reason(
@@ -158,7 +173,7 @@ class AdaptiveSchedulerBackoff:
         if item is None:
             return None
         if item.fingerprint != fingerprint:
-            self.state.clear(opportunity_id)
+            self.clear(opportunity_id)
             return None
         current = (now or datetime.now(UTC)).astimezone(UTC)
         if current >= item.next_eligible_at.astimezone(UTC):
@@ -166,4 +181,18 @@ class AdaptiveSchedulerBackoff:
         return f"backoff:{item.reason}:until={item.next_eligible_at.astimezone(UTC).isoformat()}"
 
     def clear(self, opportunity_id: UUID) -> None:
+        existing = self.state.get(opportunity_id)
+        if existing is None:
+            return
         self.state.clear(opportunity_id)
+        self.engine.store.append_event(
+            AuditEvent(
+                event_type="portfolio.scheduler_backoff_reset",
+                entity_id=opportunity_id,
+                data={
+                    "previous_reason": existing.reason,
+                    "previous_fingerprint": existing.fingerprint,
+                    "previous_consecutive_noops": existing.consecutive_noops,
+                },
+            )
+        )
