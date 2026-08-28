@@ -13,8 +13,12 @@ from helis.model_provider import OpenAICompatibleProvider
 from helis.self_improvement_branch_gateway import ApprovedSelfImprovementBranchGateway
 from helis.self_improvement_branch_manager import SelfImprovementBranchManager
 from helis.self_improvement_branch_store import SelfImprovementBranchStore
+from helis.self_improvement_ci_gateway import ApprovedSelfImprovementCIGateway
 from helis.self_improvement_gateway import ApprovedSelfImprovementEvaluationGateway
 from helis.self_improvement_machine import SelfImprovementMachine
+from helis.self_improvement_merge_gateway import ApprovedSelfImprovementMergeGateway
+from helis.self_improvement_merge_manager import SelfImprovementMergeManager
+from helis.self_improvement_merge_store import SelfImprovementMergeStore
 from helis.self_improvement_planner import ImprovementSignalCollector, NoImprovementSignal
 from helis.self_improvement_store import SelfImprovementStore
 from helis.store import HelisStore
@@ -49,6 +53,15 @@ def _branch_manager(db: Path, sandbox_root: Path) -> SelfImprovementBranchManage
     return SelfImprovementBranchManager(
         _engine(db),
         ApprovedSelfImprovementBranchGateway.from_env(),
+        sandbox_root=str(sandbox_root),
+    )
+
+
+def _merge_manager(db: Path, sandbox_root: Path) -> SelfImprovementMergeManager:
+    return SelfImprovementMergeManager(
+        _engine(db),
+        ApprovedSelfImprovementCIGateway.from_env(),
+        ApprovedSelfImprovementMergeGateway.from_env(),
         sandbox_root=str(sandbox_root),
     )
 
@@ -108,7 +121,7 @@ def materialize(
     sandbox_root: Path = Path(".helis/self-improvement"),
     db: Path = Path("helis.db"),
 ) -> None:
-    """Generate the approved proposal only inside the isolated candidate workspace."""
+    """Generate the proposal only inside the isolated candidate workspace."""
     candidate = _machine(db, repo_root, sandbox_root).materialize(UUID(proposal_id))
     console.print(
         f"candidate={candidate.id} hash={candidate.candidate_hash} workspace={candidate.workspace}"
@@ -123,7 +136,7 @@ def evaluate(
     sandbox_root: Path = Path(".helis/self-improvement"),
     db: Path = Path("helis.db"),
 ) -> None:
-    """Evaluate the exact hash-locked candidate; this command cannot merge it."""
+    """Evaluate the exact hash-locked candidate; this command cannot write a review branch."""
     gateway = ApprovedSelfImprovementEvaluationGateway.from_env()
     if gateway is None:
         raise typer.BadParameter("HELIS_SELF_EVAL_GATEWAY_URL is not configured")
@@ -137,7 +150,9 @@ def evaluate(
         f"{evaluation.baseline.metric_value} → {evaluation.candidate.metric_value}"
     )
     if proposal is not None:
-        console.print(f"proposal status={proposal.status.value}; [bold]merge command does not exist[/]")
+        console.print(
+            f"proposal status={proposal.status.value}; review-branch approval remains separate"
+        )
 
 
 @app.command("prepare-branch")
@@ -187,7 +202,74 @@ def materialize_branch(
         f"branch-run={run.id} status={run.status.value} branch={run.branch_name} "
         f"external_ref={run.external_ref or '-'}"
     )
-    console.print("[bold]review branch only; merge command does not exist[/]")
+    console.print("review branch only; CI attestation and a second merge approval remain required")
+
+
+@app.command("prepare-merge")
+def prepare_merge(
+    branch_run_id: str,
+    sandbox_root: Path = Path(".helis/self-improvement"),
+    db: Path = Path("helis.db"),
+) -> None:
+    """Prepare a merge run from one materialized review branch; no merge occurs."""
+    run = _merge_manager(db, sandbox_root).prepare(UUID(branch_run_id))
+    console.print(
+        f"merge-run={run.id} status={run.status.value} branch={run.branch_name} "
+        f"base={run.base_revision} candidate={run.candidate_hash}"
+    )
+    console.print("[yellow]green CI attestation is required before merge approval[/]")
+
+
+@app.command("attest-merge-ci")
+def attest_merge_ci(
+    run_id: str,
+    sandbox_root: Path = Path(".helis/self-improvement"),
+    db: Path = Path("helis.db"),
+) -> None:
+    """Record green CI for the exact review branch and candidate."""
+    if ApprovedSelfImprovementCIGateway.from_env() is None:
+        raise typer.BadParameter("HELIS_SELF_CI_GATEWAY_URL is not configured")
+    run = _merge_manager(db, sandbox_root).attest_ci(UUID(run_id))
+    attestation = run.ci_attestation
+    console.print(
+        f"merge-run={run.id} status={run.status.value} "
+        f"head={attestation.head_revision if attestation else '-'} "
+        f"ci-hash={run.ci_attestation_hash or '-'}"
+    )
+    console.print("[yellow]explicit approve-merge is still required[/]")
+
+
+@app.command("approve-merge")
+def approve_merge(
+    run_id: str,
+    sandbox_root: Path = Path(".helis/self-improvement"),
+    db: Path = Path("helis.db"),
+) -> None:
+    """Approve exactly one green candidate/head/base merge run."""
+    run = _merge_manager(db, sandbox_root).approve(UUID(run_id))
+    console.print(
+        f"merge-run={run.id} status={run.status.value} approved={run.approval_granted} "
+        f"branch={run.branch_name}"
+    )
+    console.print("merge still performs a fresh CI re-attestation before any side effect")
+
+
+@app.command("merge-approved")
+def merge_approved(
+    run_id: str,
+    sandbox_root: Path = Path(".helis/self-improvement"),
+    db: Path = Path("helis.db"),
+) -> None:
+    """Merge one second-approved run after a matching fresh CI re-attestation."""
+    if ApprovedSelfImprovementCIGateway.from_env() is None:
+        raise typer.BadParameter("HELIS_SELF_CI_GATEWAY_URL is not configured")
+    if ApprovedSelfImprovementMergeGateway.from_env() is None:
+        raise typer.BadParameter("HELIS_SELF_MERGE_GATEWAY_URL is not configured")
+    run = _merge_manager(db, sandbox_root).merge(UUID(run_id))
+    console.print(
+        f"merge-run={run.id} status={run.status.value} "
+        f"merged_commit={run.merged_commit_sha or '-'} external_ref={run.external_ref or '-'}"
+    )
 
 
 @app.command("branch-status")
@@ -200,6 +282,25 @@ def branch_status(db: Path = Path("helis.db")) -> None:
             run.status.value,
             str(run.approval_granted),
             run.base_revision[:12] + "…",
+            run.branch_name,
+            run.candidate_hash[:12] + "…",
+            str(run.id),
+        )
+    console.print(table)
+
+
+@app.command("merge-status")
+def merge_status(db: Path = Path("helis.db")) -> None:
+    """Show self-improvement merge runs, CI binding and second approval state."""
+    runs = SelfImprovementMergeStore(_engine(db).store).list()
+    table = Table("Status", "Approved", "Base", "Head", "Branch", "Candidate", "Run")
+    for run in runs:
+        head = run.ci_attestation.head_revision if run.ci_attestation else "-"
+        table.add_row(
+            run.status.value,
+            str(run.approval_granted),
+            run.base_revision[:12] + "…",
+            head[:12] + "…" if head != "-" else "-",
             run.branch_name,
             run.candidate_hash[:12] + "…",
             str(run.id),
@@ -245,6 +346,26 @@ def branch_gateway_status() -> None:
         console.print("self-branch gateway: [yellow]not configured[/]")
     else:
         console.print(f"self-branch gateway: [green]{gateway.safe_destination}[/]")
+
+
+@app.command("ci-gateway-status")
+def ci_gateway_status() -> None:
+    """Show self-improvement CI attestation gateway configuration."""
+    gateway = ApprovedSelfImprovementCIGateway.from_env()
+    if gateway is None:
+        console.print("self-CI gateway: [yellow]not configured[/]")
+    else:
+        console.print(f"self-CI gateway: [green]{gateway.safe_destination}[/]")
+
+
+@app.command("merge-gateway-status")
+def merge_gateway_status() -> None:
+    """Show final self-improvement merge gateway configuration."""
+    gateway = ApprovedSelfImprovementMergeGateway.from_env()
+    if gateway is None:
+        console.print("self-merge gateway: [yellow]not configured[/]")
+    else:
+        console.print(f"self-merge gateway: [green]{gateway.safe_destination}[/]")
 
 
 if __name__ == "__main__":
