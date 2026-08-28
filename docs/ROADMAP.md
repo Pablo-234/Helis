@@ -140,7 +140,9 @@ Exit criterion: core path met. HELIS may propose and evaluate a bounded low-auth
 - [x] deterministic pre-validation economic-shape heuristic; model does not award its own score
 - [x] business-model-aware dedup keeps distinct monetization strategies separate while reinforcing true repeats
 - [x] downstream analyst/skeptic treat generated economics as hypotheses rather than evidence
-- [ ] Bot Architect: derive the minimum capability graph needed to operate a selected venture
+- [x] Bot Architect: snapshot-bound minimal capability DAG over deterministic automation / AI agent / human / external service
+- [x] architecture policy caps graph/AI-agent size, forbids child SELF_MODIFY and requires venture isolation
+- [x] fresh validated architecture is an explicit autonomous checkpoint before the builder; unchanged snapshots cost zero additional model calls
 - [ ] Agent Specification Language: typed goals, inputs, tools, memory boundaries, constraints and success metrics
 - [ ] Child Agent Factory: build isolated venture-owned agents from approved specs rather than hard-coding product bots into HELIS
 - [ ] venture-level multi-agent orchestration with strict tenant/data/credential/resource isolation
