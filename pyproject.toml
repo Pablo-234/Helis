@@ -24,6 +24,7 @@ dev = [
 helis = "helis.cli:app"
 helis-preview = "helis.preview_cli:app"
 helis-gtm = "helis.gtm_cli:app"
+helis-commerce = "helis.commerce_cli:app"
 helis-portfolio = "helis.portfolio_cli:app"
 helis-venture = "helis.venture_cli:app"
 helis-agent = "helis.child_agent_cli:app"

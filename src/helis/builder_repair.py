@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from helis.budget import CycleBudget
 from helis.build_templates import get_template
 from helis.builder_generator import BuildGenerationError
+from helis.commerce_domain import CommerceBuildContext
 from helis.domain import (
     BuildBundle,
     BuildCheck,
@@ -28,7 +29,11 @@ SYSTEM_PROMPT = """You are HELIS Bounded Build Repairer.
 Repair ONE failed constrained MVP build using the exact verifier/reviewer feedback supplied.
 You get one repair attempt. Fix the blocking problems without expanding scope.
 Return only files allowed by the original template. Do not output shell commands, dependencies,
-remote scripts, credentials, secrets, payment integrations or deployment config.
+remote scripts, credentials, secrets or deployment config.
+If approved_commerce is null, do not add payment integrations. If approved_commerce is supplied,
+preserve the exact display_price and exact checkout_url using only a normal anchor link. Do not
+change the price, currency, billing mode or URL, and do not add alternate external HTTP(S) links,
+payment scripts, iframes, widgets or remote form actions.
 For python_service_v1, keep the same dependency-free handle(request: dict) -> dict contract and
 sandbox restrictions: no network, subprocesses, environment access, application file IO, daemon or
 listener. Fix implementation/tests only inside the original three allowed files.
@@ -52,6 +57,7 @@ class BuilderRepairer:
         checks: list[BuildCheck],
         review: BuildReview | None,
         previous_bundle: BuildBundle | None,
+        commerce: CommerceBuildContext | None = None,
     ) -> BuildBundle:
         definition = get_template(spec.template)
         self.budget.ensure_call_available()
@@ -64,6 +70,9 @@ class BuilderRepairer:
                         item.model_dump(mode="json") for item in validation_results
                     ],
                     "build_spec": spec.model_dump(mode="json"),
+                    "approved_commerce": (
+                        commerce.model_dump(mode="json") if commerce is not None else None
+                    ),
                     "failed_run": failed_run.model_dump(mode="json"),
                     "failed_checks": [item.model_dump(mode="json") for item in checks],
                     "review": review.model_dump(mode="json") if review else None,

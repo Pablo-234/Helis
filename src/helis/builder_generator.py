@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from helis.budget import CycleBudget
 from helis.build_templates import get_template
+from helis.commerce_domain import CommerceBuildContext
 from helis.domain import BuildBundle, BuildFile, BuildSpec, Opportunity, ValidationResult
 from helis.model_provider import ModelProvider
 
@@ -23,8 +24,11 @@ Generate only the text files allowed by the supplied template. Do not output she
 Do not add dependencies, package manifests, external scripts, tracking pixels, remote form actions,
 API keys, credentials or secrets. Do not fabricate customer counts, revenue, testimonials,
 endorsements, certifications or research results.
-For static_web_v1, build a clear honest offer page suitable for local preview and do not add active
-external content.
+For static_web_v1, build a clear honest offer page suitable for public preview and do not add active
+external content. If approved_commerce is null, do not add payment or checkout links. If
+approved_commerce is supplied, show the exact display_price verbatim and include a normal <a href>
+link to the exact checkout_url. Do not change the price, currency, billing mode or URL. Do not add
+any other external HTTP(S) link, script, iframe, payment widget or remote form action.
 For concierge_ops_v1, build a practical manual operating kit that can deliver the value before
 software exists.
 For python_service_v1, build exactly a tiny dependency-free Python workflow core plus tests:
@@ -48,6 +52,7 @@ class BuilderGenerator:
         opportunity: Opportunity,
         spec: BuildSpec,
         validation_results: list[ValidationResult],
+        commerce: CommerceBuildContext | None = None,
     ) -> BuildBundle:
         definition = get_template(spec.template)
         self.budget.ensure_call_available()
@@ -60,6 +65,9 @@ class BuilderGenerator:
                         item.model_dump(mode="json") for item in validation_results
                     ],
                     "build_spec": spec.model_dump(mode="json"),
+                    "approved_commerce": (
+                        commerce.model_dump(mode="json") if commerce is not None else None
+                    ),
                     "allowed_paths": sorted(definition.allowed_paths),
                     "required_paths": sorted(definition.required_paths),
                     "sandbox_contract": (

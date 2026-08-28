@@ -237,11 +237,7 @@ class PortfolioScheduler:
             cash_after = self.cash.available_cash(envelope.id)
             did_work = bool(getattr(result, "did_work", True))
             gtm = getattr(result, "gtm", None)
-            runtime_reason = (
-                "venture_runtime_advanced"
-                if did_work
-                else getattr(gtm, "reason", "venture_runtime_noop")
-            )
+            runtime_reason = self._runtime_reason(result, did_work)
             opportunity = self.engine.store.get_opportunity(envelope.opportunity_id)
             if opportunity is not None and gtm_is_active(opportunity.stage):
                 if did_work:
@@ -278,6 +274,17 @@ class PortfolioScheduler:
         )
         self._save(report)
         return report
+
+    @staticmethod
+    def _runtime_reason(result, did_work: bool) -> str:
+        if did_work:
+            return "venture_runtime_advanced"
+        for attribute in ("gtm", "publication", "commerce"):
+            component = getattr(result, attribute, None)
+            reason = getattr(component, "reason", None)
+            if reason:
+                return str(reason)
+        return "venture_runtime_noop"
 
     def _skip_reason(
         self,

@@ -5,6 +5,7 @@ import json
 from pydantic import BaseModel, Field
 
 from helis.budget import CycleBudget
+from helis.commerce_domain import CommerceBuildContext
 from helis.domain import (
     BuildBundle,
     BuildReview,
@@ -28,6 +29,10 @@ SYSTEM_PROMPT = """You are HELIS Adversarial Build Reviewer.
 Review one generated MVP as if you wanted to prevent a bad venture artifact from reaching preview.
 Look for: mismatch with the validated problem, unsupported/fabricated claims, deceptive copy,
 privacy/security hazards, missing acceptance criteria, unusable instructions and needless scope.
+If approved_commerce is supplied, verify that the artifact presents the exact approved visible price
+and links only to the exact approved checkout URL. Any different price, currency, billing promise,
+checkout destination, payment script/widget/iframe or alternate external HTTP(S) destination is a
+blocking issue. A normal anchor to the exact approved checkout URL is allowed.
 For python_service_v1, deterministic static checks and isolated unittest execution have already run.
 Still inspect whether handle(request)->dict actually implements useful bounded venture logic, whether
 success/failure tests meaningfully exercise the stated contract, whether edge cases are handled
@@ -52,6 +57,7 @@ class AdversarialBuildReviewer:
         spec: BuildSpec,
         run: BuildRun,
         bundle: BuildBundle,
+        commerce: CommerceBuildContext | None = None,
     ) -> BuildReview:
         self.budget.ensure_call_available()
         result = self.provider.complete(
@@ -60,6 +66,9 @@ class AdversarialBuildReviewer:
                 {
                     "opportunity": opportunity.model_dump(mode="json"),
                     "build_spec": spec.model_dump(mode="json"),
+                    "approved_commerce": (
+                        commerce.model_dump(mode="json") if commerce is not None else None
+                    ),
                     "files": [item.model_dump(mode="json") for item in bundle.files],
                 },
                 ensure_ascii=False,
