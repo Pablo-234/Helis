@@ -5,7 +5,6 @@ import re
 from helis.commerce_domain import CommerceBuildContext
 from helis.domain import BuildBundle, BuildCheck, BuildSpec, BuildTemplate
 
-
 _HREF_PATTERN = re.compile(r"\bhref\s*=\s*['\"]([^'\"]+)['\"]", re.IGNORECASE)
 
 
