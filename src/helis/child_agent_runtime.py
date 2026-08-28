@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from helis.agent_spec_domain import ChildAgentSpec
 from helis.agent_spec_store import AgentSpecStore
@@ -137,7 +137,13 @@ class ChildAgentRuntime:
                 stop_reason = "model_budget_exceeded_after_call"
                 break
 
-            payload = AgentTurnPayload.model_validate_json(result.content)
+            try:
+                payload = AgentTurnPayload.model_validate_json(result.content)
+            except ValidationError:
+                final_status = ChildAgentRunStatus.FAILED
+                stop_reason = "invalid_model_output"
+                break
+
             if payload.needs_tool is not None:
                 declared = {item.key for item in spec.allowed_tools}
                 if payload.needs_tool not in declared:
