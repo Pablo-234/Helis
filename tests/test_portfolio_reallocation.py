@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from helis.cash_reservation import CashReservationManager
 from helis.domain import (
     Opportunity,
@@ -13,8 +15,10 @@ from helis.portfolio import PortfolioAllocator, PortfolioBudget, PortfolioStore
 from helis.portfolio_reallocation import (
     PortfolioReallocationStore,
     PortfolioReallocator,
+    ReallocatingPortfolioControlLoop,
     ReallocationDisposition,
 )
+from helis.portfolio_scheduler import SchedulerTickReport
 from helis.resource_envelope import EnvelopeStatus, ResourceEnvelopeManager
 from helis.store import HelisStore
 
@@ -126,7 +130,6 @@ def test_open_cash_commitment_defers_reallocation_without_creating_new_plan(tmp_
         source="external-test",
         idempotency_key="commitment-500",
     )
-    # Change a candidate input so a new plan would otherwise be needed.
     opportunity = engine.store.get_opportunity(active[1].opportunity_id)
     assert opportunity is not None
     engine.store.save_opportunity(opportunity.model_copy(update={"stage": VentureStage.BUILDING}))
@@ -168,3 +171,42 @@ def test_empty_plan_does_not_loop_activation_forever(tmp_path) -> None:
     assert PortfolioStore(engine).latest().id == plan.id
     assert ResourceEnvelopeManager(engine).list() == []
     assert PortfolioReallocationStore(engine).latest().id == second.id
+
+
+@dataclass(slots=True)
+class InspectingScheduler:
+    engine: HelisEngine
+    seen_cash_budget: int | None = None
+    seen_model_budget: int | None = None
+    seen_active_plan_ids: set | None = None
+
+    def tick(self, *, max_advances: int) -> SchedulerTickReport:
+        latest = PortfolioStore(self.engine).latest()
+        assert latest is not None
+        self.seen_cash_budget = latest.budget.cash_cents
+        self.seen_model_budget = latest.budget.model_calls
+        self.seen_active_plan_ids = {
+            item.plan_id
+            for item in ResourceEnvelopeManager(self.engine).list(status=EnvelopeStatus.ACTIVE)
+        }
+        return SchedulerTickReport(plan_id=latest.id, max_advances=max_advances)
+
+
+def test_control_loop_reconciles_before_scheduler_runs(tmp_path) -> None:
+    engine, _, _, _, envelopes, active = _funded_portfolio(tmp_path)
+    envelopes.consume(
+        active[0].id,
+        source="test-use",
+        idempotency_key="use-before-control-loop",
+        cash_cents=700,
+        model_calls=2,
+    )
+    scheduler = InspectingScheduler(engine)
+
+    report = ReallocatingPortfolioControlLoop(engine, scheduler).tick(max_advances=2)
+    latest = PortfolioStore(engine).latest()
+
+    assert scheduler.seen_cash_budget == 9_300
+    assert scheduler.seen_model_budget == 18
+    assert scheduler.seen_active_plan_ids == {latest.id}
+    assert report.plan_id == latest.id
