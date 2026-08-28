@@ -27,6 +27,7 @@ helis-gtm = "helis.gtm_cli:app"
 helis-portfolio = "helis.portfolio_cli:app"
 helis-venture = "helis.venture_cli:app"
 helis-scheduler = "helis.scheduler_cli:app"
+helis-self = "helis.self_improvement_cli:app"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
