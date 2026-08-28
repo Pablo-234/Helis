@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from helis.self_improvement_domain import (
+    MetricDirection,
     SelfImprovementCandidate,
     SelfImprovementEvaluation,
     SelfImprovementProposal,
@@ -39,6 +40,10 @@ class SelfImprovementEvaluator:
             raise SelfImprovementEvaluationError("evaluation response candidate hash mismatch")
         if response.metric_name != proposal.metric_name:
             raise SelfImprovementEvaluationError("evaluation response metric does not match proposal")
+        if response.metric_direction != proposal.metric_direction:
+            raise SelfImprovementEvaluationError("evaluation response metric direction mismatch")
+        if proposal.metric_direction != MetricDirection.HIGHER_IS_BETTER:
+            raise SelfImprovementEvaluationError("unsupported self-improvement metric direction")
 
         expected_baseline = {item.path: item.original_sha256 for item in candidate.files}
         if response.baseline_file_hashes != expected_baseline:
@@ -50,6 +55,7 @@ class SelfImprovementEvaluator:
             candidate_id=candidate.id,
             candidate_hash=candidate.candidate_hash,
             metric_name=response.metric_name,
+            metric_direction=response.metric_direction,
             baseline=response.baseline,
             candidate=response.candidate,
             regressions=response.regressions,
