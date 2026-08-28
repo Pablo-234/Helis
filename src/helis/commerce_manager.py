@@ -28,7 +28,6 @@ from helis.domain import (
 from helis.engine import HelisEngine
 from helis.policy import ActionKind, ActionRequest, AutonomyPolicy
 
-
 _SELF_SERVE_DELIVERY = frozenset(
     {
         DeliveryModel.SOFTWARE,
