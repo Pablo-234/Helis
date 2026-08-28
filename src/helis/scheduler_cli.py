@@ -9,9 +9,11 @@ from rich.table import Table
 from helis.contact_gateway import ApprovedContactGateway
 from helis.engine import HelisEngine
 from helis.model_provider import OpenAICompatibleProvider
+from helis.portfolio import PortfolioStore
 from helis.portfolio_reallocation import ReallocatingPortfolioControlLoop
 from helis.portfolio_scheduler import PortfolioScheduler, SchedulerStore, SchedulerTickReport
 from helis.prospect_gateway import ApprovedProspectGateway
+from helis.resource_envelope import EnvelopeStatus, ResourceEnvelopeManager
 from helis.scheduler_wake import SchedulerWakeController, SchedulerWakeStore, WakePolicy
 from helis.store import HelisStore
 from helis.validation_gateway import ApprovedValidationGateway
@@ -55,6 +57,16 @@ def _print_report(report: SchedulerTickReport) -> None:
         f"advanced={report.advanced} noop={report.noop} "
         f"skipped={report.skipped} failed={report.failed}"
     )
+
+
+def _gateway_status(factory) -> str:
+    try:
+        gateway = factory()
+    except ValueError as exc:
+        return f"[red]invalid: {exc}[/]"
+    if gateway is None:
+        return "[yellow]not configured[/]"
+    return f"[green]{gateway.safe_destination}[/]"
 
 
 @app.command()
@@ -120,6 +132,42 @@ def status(db: Path = Path("helis.db")) -> None:
         console.print("scheduler: [yellow]no ticks yet[/]")
         return
     _print_report(report)
+
+
+@app.command()
+def health(
+    workspace_root: Path = Path(".helis/workspaces"),
+    db: Path = Path("helis.db"),
+) -> None:
+    """Show local operational readiness without calling models or external gateways."""
+    helis = _engine(db)
+    provider = OpenAICompatibleProvider.from_env()
+    plan = PortfolioStore(helis).latest()
+    active = ResourceEnvelopeManager(helis).list(status=EnvelopeStatus.ACTIVE)
+    latest_wake = SchedulerWakeStore(helis).latest_result()
+
+    table = Table("Component", "State")
+    table.add_row("database", str(db.expanduser().resolve()))
+    table.add_row("workspace", str(workspace_root.expanduser().resolve()))
+    table.add_row("LLM endpoint", provider.base_url)
+    table.add_row("LLM model", provider.model)
+    table.add_row("latest portfolio plan", str(plan.id) if plan else "not created")
+    table.add_row("active resource envelopes", str(len(active)))
+    table.add_row(
+        "last scheduler wake",
+        (
+            f"{latest_wake.disposition.value} @ {latest_wake.attempted_at.isoformat()}"
+            if latest_wake
+            else "no wake attempts yet"
+        ),
+    )
+    table.add_row("validation gateway", _gateway_status(ApprovedValidationGateway.from_env))
+    table.add_row("prospect gateway", _gateway_status(ApprovedProspectGateway.from_env))
+    table.add_row("contact gateway", _gateway_status(ApprovedContactGateway.from_env))
+    console.print(table)
+    console.print(
+        "[green]health check completed[/] — no model call, external request, approval or spend occurred"
+    )
 
 
 if __name__ == "__main__":
