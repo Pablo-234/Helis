@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from typer.testing import CliRunner
-
 from helis.scheduler_cli import app
+from typer.testing import CliRunner
 
 
 ROOT = Path(__file__).resolve().parents[1]
