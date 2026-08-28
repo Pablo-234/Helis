@@ -68,6 +68,8 @@ class OutreachDraft(BaseModel):
     subject: str | None = Field(default=None, max_length=200)
     body: str = Field(min_length=20, max_length=4000)
     evidence_ids: list[UUID] = Field(default_factory=list, max_length=12)
+    experiment_id: UUID | None = None
+    experiment_arm_key: str | None = Field(default=None, max_length=31)
     created_at: datetime = Field(default_factory=utc_now)
 
 
