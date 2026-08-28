@@ -28,7 +28,10 @@ SYSTEM_PROMPT = """You are HELIS Bounded Build Repairer.
 Repair ONE failed constrained MVP build using the exact verifier/reviewer feedback supplied.
 You get one repair attempt. Fix the blocking problems without expanding scope.
 Return only files allowed by the original template. Do not output shell commands, dependencies,
-server code, remote scripts, credentials, secrets, payment integrations or deployment config.
+remote scripts, credentials, secrets, payment integrations or deployment config.
+For python_service_v1, keep the same dependency-free handle(request: dict) -> dict contract and
+sandbox restrictions: no network, subprocesses, environment access, application file IO, daemon or
+listener. Fix implementation/tests only inside the original three allowed files.
 Never invent traction, testimonials, revenue, customers, certifications or validation evidence.
 If previous files are supplied, preserve useful parts and change only what is needed.
 Return JSON only: {"files":[{"path":"...","content":"..."}]}.
@@ -71,6 +74,7 @@ class BuilderRepairer:
                     ),
                     "allowed_paths": sorted(definition.allowed_paths),
                     "required_paths": sorted(definition.required_paths),
+                    "requires_execution": definition.requires_execution,
                 },
                 ensure_ascii=False,
             ),
