@@ -7,6 +7,7 @@ from rich.console import Console
 from rich.table import Table
 
 from helis.autopilot import AutonomousOnlineVentureOperator, AutopilotPolicy
+from helis.commerce_gateway import ApprovedCommerceGateway
 from helis.contact_gateway import ApprovedContactGateway
 from helis.contact_result_gateway import ApprovedContactResultGateway
 from helis.engine import HelisEngine
@@ -60,6 +61,7 @@ def _operator(
         prospect_gateway=ApprovedProspectGateway.from_env(),
         contact_gateway=ApprovedContactGateway.from_env(),
         contact_result_gateway=ApprovedContactResultGateway.from_env(),
+        commerce_gateway=ApprovedCommerceGateway.from_env(),
     )
 
 
