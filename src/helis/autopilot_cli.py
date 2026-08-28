@@ -8,6 +8,7 @@ from rich.table import Table
 
 from helis.autopilot import AutonomousOnlineVentureOperator, AutopilotPolicy
 from helis.contact_gateway import ApprovedContactGateway
+from helis.contact_result_gateway import ApprovedContactResultGateway
 from helis.engine import HelisEngine
 from helis.model_provider import OpenAICompatibleProvider
 from helis.portfolio import PortfolioStore
@@ -58,6 +59,7 @@ def _operator(
         preview_gateway=ApprovedPreviewGateway.from_env(),
         prospect_gateway=ApprovedProspectGateway.from_env(),
         contact_gateway=ApprovedContactGateway.from_env(),
+        contact_result_gateway=ApprovedContactResultGateway.from_env(),
     )
 
 
