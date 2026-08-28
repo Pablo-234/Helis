@@ -78,6 +78,7 @@ class OutreachRunStatus(StrEnum):
     WAITING_RESULT = "waiting_result"
     COMPLETED = "completed"
     BLOCKED = "blocked"
+    FAILED = "failed"
     CANCELLED = "cancelled"
 
 
@@ -86,11 +87,14 @@ class OutreachRun(BaseModel):
     draft_id: UUID
     lead_id: UUID
     opportunity_id: UUID
+    draft_hash: str = Field(min_length=64, max_length=64)
     status: OutreachRunStatus = OutreachRunStatus.WAITING_APPROVAL
     approval_granted: bool = False
     external_ref: str | None = None
     destination: str | None = None
     error: str | None = None
+    dispatched_at: datetime | None = None
+    completed_at: datetime | None = None
     updated_at: datetime = Field(default_factory=utc_now)
 
 
