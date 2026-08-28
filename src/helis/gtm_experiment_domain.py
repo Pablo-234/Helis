@@ -35,6 +35,7 @@ class GTMExperiment(BaseModel):
     arms: list[GTMExperimentArm] = Field(min_length=2, max_length=2)
     minimum_resolved_per_arm: int = Field(default=2, ge=2, le=10)
     max_resolved_per_arm: int = Field(default=5, ge=2, le=20)
+    max_assignments_per_arm: int = Field(default=5, ge=2, le=20)
     minimum_lift: float = Field(default=0.20, gt=0, le=1)
     status: GTMExperimentStatus = GTMExperimentStatus.ACTIVE
     winner_arm_key: str | None = None
@@ -49,6 +50,8 @@ class GTMExperiment(BaseModel):
             raise ValueError("GTM experiments require exactly control and variant arms")
         if self.max_resolved_per_arm < self.minimum_resolved_per_arm:
             raise ValueError("max_resolved_per_arm must be >= minimum_resolved_per_arm")
+        if self.max_assignments_per_arm < self.max_resolved_per_arm:
+            raise ValueError("max_assignments_per_arm must be >= max_resolved_per_arm")
         if self.kind == GTMExperimentKind.PRICING:
             prices = [arm.price_cents for arm in self.arms]
             if any(price is None for price in prices):
@@ -66,6 +69,7 @@ class GTMExperiment(BaseModel):
 
 class GTMArmMetrics(BaseModel):
     arm_key: str
+    assigned: int = Field(default=0, ge=0)
     resolved: int = Field(default=0, ge=0)
     sales: int = Field(default=0, ge=0)
     meetings: int = Field(default=0, ge=0)
