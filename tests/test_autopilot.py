@@ -6,9 +6,9 @@ from uuid import UUID
 
 from helis import autopilot as autopilot_module
 from helis.autopilot import (
+    AutonomousOnlineVentureOperator,
     AutopilotPolicy,
     AutopilotStopReason,
-    AutonomousOnlineVentureOperator,
 )
 from helis.budget import CycleBudget
 from helis.domain import (
@@ -260,7 +260,7 @@ def test_autopilot_bootstraps_zero_cash_portfolio_with_model_capacity(tmp_path: 
         lambda: StaticScanner([]),
     )
 
-    plan, created = operator._ensure_portfolio(  # noqa: SLF001 -- explicit invariant unit test
+    plan, created = operator._ensure_portfolio(
         AutopilotPolicy(cash_cents=0, portfolio_model_calls=20, reserve_fraction=0)
     )
 
@@ -283,7 +283,7 @@ def test_existing_funded_plan_is_not_refilled_by_a_later_autopilot_bootstrap(tmp
         ScoutOnlyProvider(UUID(int=1)),
         lambda: StaticScanner([]),
     )
-    first, _ = operator._ensure_portfolio(  # noqa: SLF001
+    first, _ = operator._ensure_portfolio(
         AutopilotPolicy(portfolio_model_calls=20, reserve_fraction=0)
     )
     assert first is not None and first.allocations
@@ -297,7 +297,7 @@ def test_existing_funded_plan_is_not_refilled_by_a_later_autopilot_bootstrap(tmp
     )
     assert consumed.model_calls_consumed == 1
 
-    second, created = operator._ensure_portfolio(  # noqa: SLF001
+    second, created = operator._ensure_portfolio(
         AutopilotPolicy(portfolio_model_calls=999, reserve_fraction=0)
     )
 
