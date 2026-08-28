@@ -3,11 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
-from helis.budget import CycleBudget
+from helis.budget import BudgetExceeded, CycleBudget
 from helis.contact_gateway import ContactGateway
 from helis.engine import HelisEngine
 from helis.gtm_discovery import GTMDiscoveryMachine, GTMDiscoveryReport
 from helis.gtm_domain import OutreachRunStatus
+from helis.gtm_experiment import GTMExperimentManager
 from helis.gtm_lifecycle import gtm_is_active
 from helis.gtm_outreach import GTMContactPolicy, OutreachManager
 from helis.gtm_store import GTMStore
@@ -21,13 +22,19 @@ class GTMTickReport:
     discovery: GTMDiscoveryReport | None = None
     prepared_run_id: UUID | None = None
     dispatched_run_id: UUID | None = None
+    experiment_id: UUID | None = None
+    experiment_planned: bool = False
     waiting_approval: int = 0
     waiting_result: int = 0
     reason: str = "no_gtm_work"
 
     @property
     def did_work(self) -> bool:
-        if self.prepared_run_id is not None or self.dispatched_run_id is not None:
+        if (
+            self.prepared_run_id is not None
+            or self.dispatched_run_id is not None
+            or self.experiment_planned
+        ):
             return True
         if self.discovery is None:
             return False
@@ -63,12 +70,14 @@ class GTMRuntime:
         self.engine = engine
         self.budget = budget
         self.state = GTMStore(engine.store)
+        self.experiments = GTMExperimentManager(engine, provider, budget)
         self.discovery = GTMDiscoveryMachine(
             engine,
             provider,
             budget,
             prospect_gateway,
             draft_limit=1,
+            experiment_manager=self.experiments,
         )
         self.outreach = OutreachManager(
             engine,
@@ -129,6 +138,23 @@ class GTMRuntime:
         if self.budget.model_calls >= self.budget.max_model_calls:
             return self._report(opportunity_id, reason="no_model_capacity")
 
+        experiment_id: UUID | None = None
+        experiment_planned = False
+        try:
+            experiment_result = self.experiments.plan_if_eligible(opportunity_id)
+        except BudgetExceeded:
+            return self._report(opportunity_id, reason="no_model_capacity")
+        if experiment_result.experiment is not None:
+            experiment_id = experiment_result.experiment.id
+            experiment_planned = experiment_result.created
+        if experiment_planned and self.budget.model_calls >= self.budget.max_model_calls:
+            return self._report(
+                opportunity_id,
+                experiment_id=experiment_id,
+                experiment_planned=True,
+                reason="experiment_planned",
+            )
+
         discovery = self.discovery.tick(opportunity_id)
         prepared_run_id: UUID | None = None
         if self._counts(self.state.list_outreach_runs(opportunity_id))[0] < self.max_waiting_approval:
@@ -138,8 +164,14 @@ class GTMRuntime:
 
         if prepared_run_id is not None:
             reason = "discovery_draft_prepared"
+        elif experiment_planned and self._discovery_did_progress(discovery):
+            reason = "experiment_planned_and_discovery_completed"
+        elif experiment_planned:
+            reason = "experiment_planned"
         elif discovery.model_budget_exhausted:
             reason = "no_model_capacity"
+        elif discovery.experiment_assignment_cap_reached:
+            reason = "experiment_assignment_cap"
         elif self._discovery_did_progress(discovery):
             reason = "discovery_completed"
         else:
@@ -149,6 +181,8 @@ class GTMRuntime:
             opportunity_id,
             discovery=discovery,
             prepared_run_id=prepared_run_id,
+            experiment_id=experiment_id or discovery.experiment_id,
+            experiment_planned=experiment_planned,
             reason=reason,
         )
 
@@ -187,6 +221,8 @@ class GTMRuntime:
         discovery: GTMDiscoveryReport | None = None,
         prepared_run_id: UUID | None = None,
         dispatched_run_id: UUID | None = None,
+        experiment_id: UUID | None = None,
+        experiment_planned: bool = False,
         reason: str,
     ) -> GTMTickReport:
         waiting_approval, waiting_result = self._counts(
@@ -197,6 +233,8 @@ class GTMRuntime:
             discovery=discovery,
             prepared_run_id=prepared_run_id,
             dispatched_run_id=dispatched_run_id,
+            experiment_id=experiment_id,
+            experiment_planned=experiment_planned,
             waiting_approval=waiting_approval,
             waiting_result=waiting_result,
             reason=reason,

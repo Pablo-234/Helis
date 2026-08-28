@@ -7,6 +7,8 @@ from helis.budget import BudgetExceeded, CycleBudget
 from helis.domain import AuditEvent, Opportunity
 from helis.engine import HelisEngine
 from helis.gtm_domain import Lead, LeadStage
+from helis.gtm_experiment import GTMExperimentManager
+from helis.gtm_experiment_domain import GTMExperimentStatus
 from helis.gtm_lifecycle import gtm_is_active
 from helis.gtm_store import GTMStore
 from helis.lead_qualifier import LeadQualifier
@@ -24,6 +26,9 @@ class GTMDiscoveryReport:
     leads_added: int = 0
     leads_qualified: int = 0
     drafts_created: int = 0
+    experiment_id: UUID | None = None
+    experiment_assignments: int = 0
+    experiment_assignment_cap_reached: bool = False
     model_budget_exhausted: bool = False
     gateway_missing: bool = False
 
@@ -38,6 +43,7 @@ class GTMDiscoveryMachine:
         *,
         qualification_threshold: float = 6.5,
         draft_limit: int = 3,
+        experiment_manager: GTMExperimentManager | None = None,
     ) -> None:
         self.engine = engine
         self.state = GTMStore(engine.store)
@@ -46,6 +52,7 @@ class GTMDiscoveryMachine:
         self.planner = ProspectPlanner(provider, budget)
         self.qualifier = LeadQualifier(provider, budget)
         self.drafter = OutreachDrafter(provider, budget)
+        self.experiments = experiment_manager
         self.qualification_threshold = qualification_threshold
         self.draft_limit = max(1, min(draft_limit, 5))
 
@@ -128,8 +135,34 @@ class GTMDiscoveryMachine:
             if lead.stage == LeadStage.QUALIFIED and self.state.get_draft_for_lead(lead.id) is None
         ][: self.draft_limit]
         if draftable:
+            experiment = (
+                self.experiments.experiment_for_drafting(opportunity.id)
+                if self.experiments is not None
+                else None
+            )
+            assignments = (
+                self.experiments.assign_for_leads(opportunity.id, draftable)
+                if self.experiments is not None and experiment is not None
+                else {}
+            )
+            if experiment is not None:
+                report.experiment_id = experiment.id
+                report.experiment_assignments = len(assignments)
+            if experiment is not None and experiment.status == GTMExperimentStatus.ACTIVE:
+                if not assignments:
+                    report.experiment_assignment_cap_reached = True
+                    return report
+                # An active experiment may draft only leads that received an arm. This prevents
+                # partially full assignment caps from leaking unassigned contacts around the test.
+                draftable = [lead for lead in draftable if lead.id in assignments]
             try:
-                drafts = self.drafter.draft(opportunity, validation_results, draftable)
+                drafts = self.drafter.draft(
+                    opportunity,
+                    validation_results,
+                    draftable,
+                    experiment=experiment if assignments else None,
+                    offer_arms=assignments,
+                )
             except BudgetExceeded:
                 report.model_budget_exhausted = True
                 return report
@@ -139,7 +172,17 @@ class GTMDiscoveryMachine:
                 if lead is not None:
                     self.state.update_lead(lead.model_copy(update={"stage": LeadStage.DRAFTED}))
                 report.drafts_created += 1
-                self._event("gtm.outreach_drafted", draft.id, {"lead_id": str(draft.lead_id)})
+                self._event(
+                    "gtm.outreach_drafted",
+                    draft.id,
+                    {
+                        "lead_id": str(draft.lead_id),
+                        "experiment_id": (
+                            str(draft.experiment_id) if draft.experiment_id is not None else None
+                        ),
+                        "experiment_arm_key": draft.experiment_arm_key,
+                    },
+                )
         return report
 
     def _target(self, opportunity_id: UUID | None) -> Opportunity | None:

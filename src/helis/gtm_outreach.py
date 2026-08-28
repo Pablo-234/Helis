@@ -19,6 +19,7 @@ from helis.gtm_domain import (
     OutreachRunStatus,
     RevenueEvent,
 )
+from helis.gtm_experiment import GTMExperimentManager
 from helis.gtm_feedback import GTMFeedbackRefresher
 from helis.gtm_lifecycle import gtm_is_active
 from helis.gtm_store import GTMStore, lead_identity
@@ -43,16 +44,21 @@ class GTMContactPolicy:
 
 
 def draft_hash(draft: OutreachDraft) -> str:
+    payload: dict[str, object] = {
+        "id": str(draft.id),
+        "lead_id": str(draft.lead_id),
+        "opportunity_id": str(draft.opportunity_id),
+        "channel": draft.channel.value,
+        "subject": draft.subject,
+        "body": draft.body,
+        "evidence_ids": [str(item) for item in draft.evidence_ids],
+    }
+    # Preserve the historical hash for non-experiment drafts while locking any experiment binding.
+    if draft.experiment_id is not None:
+        payload["experiment_id"] = str(draft.experiment_id)
+        payload["experiment_arm_key"] = draft.experiment_arm_key
     canonical = json.dumps(
-        {
-            "id": str(draft.id),
-            "lead_id": str(draft.lead_id),
-            "opportunity_id": str(draft.opportunity_id),
-            "channel": draft.channel.value,
-            "subject": draft.subject,
-            "body": draft.body,
-            "evidence_ids": [str(item) for item in draft.evidence_ids],
-        },
+        payload,
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
@@ -72,6 +78,7 @@ class OutreachManager:
         self.engine = engine
         self.state = GTMStore(engine.store)
         self.feedback = GTMFeedbackRefresher(engine)
+        self.experiments = GTMExperimentManager(engine)
         self.gateway = gateway
         self.contact_policy = contact_policy or GTMContactPolicy()
         self.autonomy_policy = autonomy_policy or AutonomyPolicy()
@@ -185,6 +192,7 @@ class OutreachManager:
         existing = self.state.get_response_for_run(run.id)
         if existing is not None:
             self._refresh_feedback(existing.opportunity_id, existing.id)
+            self._refresh_experiment(existing.opportunity_id, existing.id)
             return existing, self.state.get_revenue_for_response(existing.id)
         if run.status not in {OutreachRunStatus.DISPATCHED, OutreachRunStatus.WAITING_RESULT}:
             raise OutreachError(f"run {run.id} is not waiting for a response")
@@ -194,6 +202,7 @@ class OutreachManager:
             raise OutreachError("revenue may only be attributed to a SALE response")
 
         lead = self._require_lead(run.lead_id)
+        draft = self._require_draft(run.draft_id)
         self.state.save_response(response)
         revenue: RevenueEvent | None = None
         if response.revenue_cents > 0:
@@ -233,6 +242,8 @@ class OutreachManager:
                     "kind": response.kind.value,
                     "revenue_cents": response.revenue_cents,
                     "currency": response.currency.upper(),
+                    "experiment_id": str(draft.experiment_id) if draft.experiment_id else None,
+                    "experiment_arm_key": draft.experiment_arm_key,
                 },
             )
         )
@@ -250,6 +261,7 @@ class OutreachManager:
                 )
             )
         self._refresh_feedback(response.opportunity_id, response.id)
+        self._refresh_experiment(response.opportunity_id, response.id)
         return response, revenue
 
     def _refresh_feedback(self, opportunity_id: UUID, response_id: UUID) -> None:
@@ -259,6 +271,21 @@ class OutreachManager:
             self.engine.store.append_event(
                 AuditEvent(
                     event_type="gtm.feedback_refresh_failed",
+                    entity_id=response_id,
+                    data={
+                        "opportunity_id": str(opportunity_id),
+                        "error": f"{type(exc).__name__}: {exc}",
+                    },
+                )
+            )
+
+    def _refresh_experiment(self, opportunity_id: UUID, response_id: UUID) -> None:
+        try:
+            self.experiments.refresh(opportunity_id)
+        except Exception as exc:  # noqa: BLE001 -- persisted response must remain accepted
+            self.engine.store.append_event(
+                AuditEvent(
+                    event_type="gtm.experiment_refresh_failed",
                     entity_id=response_id,
                     data={
                         "opportunity_id": str(opportunity_id),
