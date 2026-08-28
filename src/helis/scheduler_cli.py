@@ -8,6 +8,7 @@ from rich.table import Table
 
 from helis.engine import HelisEngine
 from helis.model_provider import OpenAICompatibleProvider
+from helis.portfolio_rebalance import RebalancingSchedulerTicker
 from helis.portfolio_scheduler import PortfolioScheduler, SchedulerStore, SchedulerTickReport
 from helis.scheduler_wake import SchedulerWakeController, SchedulerWakeStore, WakePolicy
 from helis.store import HelisStore
@@ -21,13 +22,14 @@ def _engine(db: Path) -> HelisEngine:
     return HelisEngine(HelisStore(db))
 
 
-def _scheduler(helis: HelisEngine, workspace_root: Path) -> PortfolioScheduler:
-    return PortfolioScheduler(
+def _scheduler(helis: HelisEngine, workspace_root: Path) -> RebalancingSchedulerTicker:
+    scheduler = PortfolioScheduler(
         helis,
         OpenAICompatibleProvider.from_env(),
         workspace_root=workspace_root,
         validation_gateway=ApprovedValidationGateway.from_env(),
     )
+    return RebalancingSchedulerTicker(helis, scheduler)
 
 
 def _print_report(report: SchedulerTickReport) -> None:
@@ -55,9 +57,17 @@ def tick(
     workspace_root: Path = Path(".helis/workspaces"),
     db: Path = Path("helis.db"),
 ) -> None:
-    """Advance the highest-priority eligible active venture envelopes once."""
+    """Rebalance resources, then advance eligible venture envelopes once."""
     helis = _engine(db)
-    _print_report(_scheduler(helis, workspace_root).tick(max_advances=max_advances))
+    ticker = _scheduler(helis, workspace_root)
+    report = ticker.tick(max_advances=max_advances)
+    if ticker.last_rebalance is not None:
+        console.print(
+            f"rebalance={ticker.last_rebalance.disposition.value} "
+            f"reason={ticker.last_rebalance.reason} "
+            f"plan={ticker.last_rebalance.plan_id or '-'}"
+        )
+    _print_report(report)
 
 
 @app.command()
@@ -68,7 +78,7 @@ def wake(
     workspace_root: Path = Path(".helis/workspaces"),
     db: Path = Path("helis.db"),
 ) -> None:
-    """Cron-safe wake: run a bounded scheduler tick only when due and no lease is active."""
+    """Cron-safe wake: rebalance and run a bounded tick only when due and lease-safe."""
     helis = _engine(db)
     result = SchedulerWakeController(
         helis,
