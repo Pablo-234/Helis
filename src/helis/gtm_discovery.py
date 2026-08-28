@@ -148,13 +148,13 @@ class GTMDiscoveryMachine:
             if experiment is not None:
                 report.experiment_id = experiment.id
                 report.experiment_assignments = len(assignments)
-            if (
-                experiment is not None
-                and experiment.status == GTMExperimentStatus.ACTIVE
-                and not assignments
-            ):
-                report.experiment_assignment_cap_reached = True
-                return report
+            if experiment is not None and experiment.status == GTMExperimentStatus.ACTIVE:
+                if not assignments:
+                    report.experiment_assignment_cap_reached = True
+                    return report
+                # An active experiment may draft only leads that received an arm. This prevents
+                # partially full assignment caps from leaking unassigned contacts around the test.
+                draftable = [lead for lead in draftable if lead.id in assignments]
             try:
                 drafts = self.drafter.draft(
                     opportunity,
