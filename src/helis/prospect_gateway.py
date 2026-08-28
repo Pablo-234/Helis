@@ -9,7 +9,7 @@ from urllib.request import Request, urlopen
 
 from pydantic import BaseModel, Field
 
-from helis.gtm_domain import LeadChannel, ProspectEvidence, ProspectQuery
+from helis.gtm_domain import LeadChannel, LeadContactOption, ProspectEvidence, ProspectQuery
 
 
 class ProspectGatewayConfigurationError(ValueError):
@@ -21,6 +21,7 @@ class ProspectCandidate(BaseModel):
     website: str | None = Field(default=None, max_length=1500)
     contact_endpoint: str | None = Field(default=None, max_length=1500)
     channel: LeadChannel = LeadChannel.OTHER
+    contact_options: list[LeadContactOption] = Field(default_factory=list, max_length=8)
     evidence: list[ProspectEvidence] = Field(min_length=1, max_length=12)
 
 
