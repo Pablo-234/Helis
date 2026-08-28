@@ -85,10 +85,13 @@ class ApprovedContactGateway:
     def send(self, run: OutreachRun, lead: Lead, draft: OutreachDraft) -> ContactGatewayAck:
         effective_lead = lead
         if draft.contact_endpoint is not None:
+            # Do not expose alternate endpoints to the write boundary. The gateway receives exactly
+            # the endpoint/channel frozen into the approved draft, not a menu it could choose from.
             effective_lead = lead.model_copy(
                 update={
                     "contact_endpoint": draft.contact_endpoint,
                     "channel": draft.channel,
+                    "contact_options": [],
                 }
             )
         payload = json.dumps(
