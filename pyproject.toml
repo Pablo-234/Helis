@@ -22,6 +22,7 @@ dev = [
 
 [project.scripts]
 helis = "helis.cli:app"
+helis-preview = "helis.preview_cli:app"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
