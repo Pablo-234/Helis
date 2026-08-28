@@ -41,6 +41,44 @@ def _validated(engine: HelisEngine) -> Opportunity:
     return opportunity
 
 
+def _plan_payload() -> dict:
+    return {
+        "template": "static_web_v1",
+        "name": "FastQuote preview",
+        "goal": "Show the validated faster-quoting value proposition clearly and honestly.",
+        "acceptance_criteria": [
+            "State the recurring quoting problem",
+            "Explain the faster intake and response workflow",
+        ],
+    }
+
+
+def _good_bundle_payload() -> dict:
+    return {
+        "files": [
+            {
+                "path": "index.html",
+                "content": (
+                    "<!doctype html><html><body><main><h1>Faster quotes for service teams</h1>"
+                    "<p>Capture the details once and prepare a clearer response faster.</p>"
+                    "</main></body></html>"
+                ),
+            },
+            {
+                "path": "styles.css",
+                "content": "body { font-family: sans-serif; max-width: 60rem; margin: auto; }",
+            },
+            {
+                "path": "README.md",
+                "content": (
+                    "# FastQuote preview\n\nA local-only MVP artifact for testing the validated "
+                    "positioning. It makes no claims about customers, revenue or traction."
+                ),
+            },
+        ]
+    }
+
+
 def test_builder_ignores_unvalidated_venture(tmp_path) -> None:
     engine = HelisEngine(HelisStore(tmp_path / "helis.db"))
     opportunity = Opportunity(
@@ -66,38 +104,8 @@ def test_builder_creates_verified_preview_and_is_idempotent(tmp_path) -> None:
     opportunity = _validated(engine)
     provider = FakeProvider(
         [
-            {
-                "template": "static_web_v1",
-                "name": "FastQuote preview",
-                "goal": "Show the validated faster-quoting value proposition clearly and honestly.",
-                "acceptance_criteria": [
-                    "State the recurring quoting problem",
-                    "Explain the faster intake and response workflow",
-                ],
-            },
-            {
-                "files": [
-                    {
-                        "path": "index.html",
-                        "content": (
-                            "<!doctype html><html><body><main><h1>Faster quotes for service teams</h1>"
-                            "<p>Capture the details once and prepare a clearer response faster.</p>"
-                            "</main></body></html>"
-                        ),
-                    },
-                    {
-                        "path": "styles.css",
-                        "content": "body { font-family: sans-serif; max-width: 60rem; margin: auto; }",
-                    },
-                    {
-                        "path": "README.md",
-                        "content": (
-                            "# FastQuote preview\n\nA local-only MVP artifact for testing the validated "
-                            "positioning. It makes no claims about customers, revenue or traction."
-                        ),
-                    },
-                ]
-            },
+            _plan_payload(),
+            _good_bundle_payload(),
             {
                 "verdict": "pass",
                 "score": 8.5,
@@ -125,6 +133,95 @@ def test_builder_creates_verified_preview_and_is_idempotent(tmp_path) -> None:
     assert second.preview is not None
     assert second.preview.id == first.preview.id
     assert provider.calls == 3
+
+
+def test_failed_review_gets_one_bounded_repair(tmp_path) -> None:
+    engine = HelisEngine(HelisStore(tmp_path / "helis.db"))
+    opportunity = _validated(engine)
+    provider = FakeProvider(
+        [
+            _plan_payload(),
+            _good_bundle_payload(),
+            {
+                "verdict": "fail",
+                "score": 5.5,
+                "blocking_issues": ["The offer does not explain what happens after intake."],
+                "warnings": [],
+                "summary": "The artifact is incomplete.",
+            },
+            _good_bundle_payload(),
+            {
+                "verdict": "pass",
+                "score": 8.2,
+                "blocking_issues": [],
+                "warnings": [],
+                "summary": "The repaired artifact is coherent and bounded.",
+            },
+        ]
+    )
+    machine = BuilderMachine(
+        engine,
+        provider,
+        CycleBudget(max_model_calls=5),
+        workspace_root=tmp_path / "workspaces",
+        max_attempts=2,
+    )
+
+    first = machine.tick(opportunity.id)
+    assert first.preview is None
+    assert first.run is not None
+    assert first.run.status.value == "failed"
+    assert first.run.attempt == 1
+    assert provider.calls == 3
+
+    second = machine.tick(opportunity.id)
+    assert second.preview is not None
+    assert second.run is not None
+    assert second.run.attempt == 2
+    assert second.repair_attempted is True
+    assert provider.calls == 5
+
+    third = machine.tick(opportunity.id)
+    assert third.preview is not None
+    assert provider.calls == 5
+
+
+def test_repair_budget_stops_after_second_failure(tmp_path) -> None:
+    engine = HelisEngine(HelisStore(tmp_path / "helis.db"))
+    opportunity = _validated(engine)
+    bad_review = {
+        "verdict": "fail",
+        "score": 4.0,
+        "blocking_issues": ["Still misleading or incomplete."],
+        "warnings": [],
+        "summary": "Reject.",
+    }
+    provider = FakeProvider(
+        [
+            _plan_payload(),
+            _good_bundle_payload(),
+            bad_review,
+            _good_bundle_payload(),
+            bad_review,
+        ]
+    )
+    machine = BuilderMachine(
+        engine,
+        provider,
+        CycleBudget(max_model_calls=5),
+        workspace_root=tmp_path / "workspaces",
+        max_attempts=2,
+    )
+    assert machine.tick(opportunity.id).run.status.value == "failed"
+    second = machine.tick(opportunity.id)
+    assert second.run is not None
+    assert second.run.attempt == 2
+    assert second.run.status.value == "failed"
+    assert provider.calls == 5
+
+    third = machine.tick(opportunity.id)
+    assert third.blocked_reason == "build repair budget exhausted after 2 attempts"
+    assert provider.calls == 5
 
 
 def test_verifier_rejects_path_escape_and_secret() -> None:
