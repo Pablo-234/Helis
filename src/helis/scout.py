@@ -6,8 +6,15 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from helis.budget import CycleBudget
-from helis.domain import Evidence, EvidenceKind, Observation, Opportunity
+from helis.domain import (
+    BusinessModelHypothesis,
+    Evidence,
+    EvidenceKind,
+    Observation,
+    Opportunity,
+)
 from helis.model_provider import ModelProvider
+from helis.money_model import expand_problem_opportunity
 
 
 class Candidate(BaseModel):
@@ -17,19 +24,68 @@ class Candidate(BaseModel):
     proposed_value: str
     supporting_observation_ids: list[UUID] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
+    money_models: list[BusinessModelHypothesis] = Field(default_factory=list, max_length=5)
 
 
 class CandidateEnvelope(BaseModel):
-    candidates: list[Candidate]
+    candidates: list[Candidate] = Field(default_factory=list, max_length=5)
 
 
-SYSTEM_PROMPT = """You are the HELIS Opportunity Scout.
-Find economically testable business opportunities in the supplied observations.
-Do not invent evidence. Every factual support claim must trace to one of the supplied observation IDs.
-Prefer painful, frequent, expensive or slow workflows and clear market inefficiencies.
-Do not assume the solution must be software.
-Return JSON only: {\"candidates\":[{\"title\":...,\"problem\":...,\"customer\":...,\"proposed_value\":...,\"supporting_observation_ids\":[...],\"tags\":[...]}]}.
-If evidence is too weak, return an empty candidates array.
+SYSTEM_PROMPT = """You are the HELIS Opportunity + Monetization Scout.
+Find economically testable customer problems in the supplied observations, then propose structurally
+different ways to make money from solving each problem.
+
+Evidence rules:
+- Do not invent evidence. Every factual support claim must trace to a supplied observation ID.
+- Treat prices, margins, time-to-revenue and operating effort as HYPOTHESES, never observed facts.
+- If evidence is too weak to support a real problem/customer pair, return no candidate for it.
+
+Business-model rules:
+- For each candidate, propose 2-5 meaningfully different money_models when plausible.
+- Do NOT assume the solution must be software or even an AI bot.
+- Consider managed services, agent-delivered services, automations, data products, marketplaces,
+  software, media, physical/operational services and hybrids when they make economic sense.
+- Vary the economic mechanism, not merely wording. Prefer different revenue_model + delivery_model
+  combinations instead of cosmetic variants.
+- Optimize for fast falsification, capital efficiency, strong margins and low recurring owner effort,
+  but do not fabricate traction or certainty.
+- automation_roles describe capabilities that could later be automated; they are NOT a fixed bot design.
+- human_roles must honestly include work that probably still needs a person.
+- Use one plausible ISO-4217 currency consistently across money models for the same candidate.
+
+Return JSON only in this shape:
+{
+  "candidates": [
+    {
+      "title": "problem-level opportunity name",
+      "problem": "specific painful problem",
+      "customer": "who experiences the problem",
+      "proposed_value": "problem-level outcome, not a specific implementation",
+      "supporting_observation_ids": ["UUID"],
+      "tags": ["..."],
+      "money_models": [
+        {
+          "name": "specific monetized venture concept",
+          "payer": "who pays",
+          "offer": "what is sold",
+          "value_proposition": "why the payer would buy",
+          "revenue_model": "subscription|retainer|fixed_fee|usage|transaction_fee|success_fee|lead_fee|licensing|marketplace_fee|advertising|other",
+          "delivery_model": "ai_agent_service|managed_service|software|automation|data_product|marketplace|content_media|physical_ops|hybrid|other",
+          "pricing": {"currency":"USD","low_cents":0,"high_cents":0,"unit":"per ..."},
+          "acquisition_wedge": "cheapest credible path to first buyers",
+          "fulfillment": "how value is actually delivered",
+          "automation_roles": ["capability that could be automated"],
+          "human_roles": ["work that still requires a person"],
+          "time_to_first_revenue_days": 1,
+          "gross_margin_pct": 0,
+          "owner_minutes_per_week_at_scale": 0,
+          "test_cost_cents": 0,
+          "primary_risks": ["..." ]
+        }
+      ]
+    }
+  ]
+}
 """
 
 
@@ -81,14 +137,20 @@ class OpportunityScout:
                 )
                 for item in valid_observations
             ]
-            opportunities.append(
-                Opportunity(
-                    title=candidate.title,
-                    problem=candidate.problem,
-                    customer=candidate.customer,
-                    proposed_value=candidate.proposed_value,
-                    evidence=evidence,
-                    tags=candidate.tags,
-                )
+            problem = Opportunity(
+                title=candidate.title,
+                problem=candidate.problem,
+                customer=candidate.customer,
+                proposed_value=candidate.proposed_value,
+                evidence=evidence,
+                tags=candidate.tags,
             )
+            if candidate.money_models:
+                opportunities.extend(
+                    expand_problem_opportunity(problem, candidate.money_models, limit=3)
+                )
+            else:
+                # Backward-compatible fallback for old providers/fixtures. New prompts should
+                # normally produce explicit money models before an Opportunity is persisted.
+                opportunities.append(problem)
         return opportunities
