@@ -229,9 +229,10 @@ class ValidationRunner:
                 return ExecutionOutcome(run=waiting_result, dispatch=execution)
 
             if executor_requires_cash:
-                self.cash.settle_for_run(
-                    running.id,
-                    actual_cost_cents=execution.actual_cost_cents,
+                self._settle_cash_or_raise_overrun(
+                    running,
+                    experiment,
+                    execution.actual_cost_cents,
                 )
             self.engine.record_validation_result(execution)
             completed = running.model_copy(
@@ -284,9 +285,10 @@ class ValidationRunner:
 
         reservation = self.cash.find_for_run(run.id)
         if reservation is not None:
-            self.cash.settle_for_run(
-                run.id,
-                actual_cost_cents=result.actual_cost_cents,
+            self._settle_cash_or_raise_overrun(
+                run,
+                experiment,
+                result.actual_cost_cents,
             )
 
         self.engine.record_validation_result(result)
@@ -300,15 +302,40 @@ class ValidationRunner:
             }
         )
         self.engine.record_experiment_run(completed, event_type="experiment.completed_external")
-        if result.actual_cost_cents > experiment.max_cost_cents:
-            self.engine.store.append_event(
-                AuditEvent(
-                    event_type="experiment.cost_overrun",
-                    entity_id=run.id,
-                    data={
-                        "planned_max_cost_cents": experiment.max_cost_cents,
-                        "actual_cost_cents": result.actual_cost_cents,
-                    },
-                )
-            )
+        if reservation is None and result.actual_cost_cents > experiment.max_cost_cents:
+            self._record_cost_overrun(run, experiment, result.actual_cost_cents)
         return completed
+
+    def _settle_cash_or_raise_overrun(
+        self,
+        run: ExperimentRun,
+        experiment: Experiment,
+        actual_cost_cents: float,
+    ) -> None:
+        reservation = self.cash.find_for_run(run.id)
+        if reservation is None:
+            if actual_cost_cents > 0:
+                self._record_cost_overrun(run, experiment, actual_cost_cents)
+                raise EnvelopeExceeded("paid validation result has no cash reservation")
+            return
+        if actual_cost_cents > reservation.reserved_cents:
+            self._record_cost_overrun(run, experiment, actual_cost_cents)
+            raise EnvelopeExceeded("validation actual cost exceeds reserved cash")
+        self.cash.settle_for_run(run.id, actual_cost_cents=actual_cost_cents)
+
+    def _record_cost_overrun(
+        self,
+        run: ExperimentRun,
+        experiment: Experiment,
+        actual_cost_cents: float,
+    ) -> None:
+        self.engine.store.append_event(
+            AuditEvent(
+                event_type="experiment.cost_overrun",
+                entity_id=run.id,
+                data={
+                    "planned_max_cost_cents": experiment.max_cost_cents,
+                    "actual_cost_cents": actual_cost_cents,
+                },
+            )
+        )
