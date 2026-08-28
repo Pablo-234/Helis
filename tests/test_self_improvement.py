@@ -18,11 +18,10 @@ from helis.self_improvement_domain import (
 from helis.self_improvement_evaluator import SelfImprovementEvaluationError
 from helis.self_improvement_gateway import EvaluationGatewayResponse
 from helis.self_improvement_machine import SelfImprovementMachine
-from helis.self_improvement_planner import ImprovementSignalCollector, NoImprovementSignal
+from helis.self_improvement_planner import ImprovementSignalCollector
 from helis.self_improvement_policy import SelfImprovementPolicy, UnsafeSelfImprovement
 from helis.self_improvement_store import SelfImprovementStore
 from helis.store import HelisStore
-
 
 BASELINE = '''def normalize(value: str) -> str:\n    return value.strip().lower()\n'''
 IMPROVED = '''def normalize(value: str) -> str:\n    return " ".join(value.strip().lower().split())\n'''
