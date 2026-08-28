@@ -7,19 +7,26 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from helis.domain import AuditEvent, Scorecard, VentureStage, utc_now
 from helis.engine import HelisEngine
 from helis.gtm_decision import GTMDecisionKind, GTMDecisionStore
+from helis.portfolio_value import VentureValueEstimate, VentureValueEstimator
 
 
 class PortfolioBudget(BaseModel):
     cash_cents: int = Field(default=0, ge=0)
+    currency: str = Field(default="PLN", min_length=3, max_length=3)
     model_calls: int = Field(default=0, ge=0)
     reserve_fraction: float = Field(default=0.20, ge=0, le=0.90)
     max_ventures: int = Field(default=4, ge=1, le=50)
     max_concentration: float = Field(default=0.60, gt=0, le=1)
+
+    @field_validator("currency")
+    @classmethod
+    def normalize_currency(cls, value: str) -> str:
+        return value.upper()
 
     @property
     def allocatable_cash_cents(self) -> int:
@@ -40,6 +47,7 @@ class PortfolioCandidate(BaseModel):
     gtm_decision: str | None = None
     sales: int = Field(default=0, ge=0)
     positive_rate: float = Field(default=0, ge=0, le=1)
+    value_estimate: VentureValueEstimate
     rationale: list[str] = Field(default_factory=list)
 
 
@@ -153,9 +161,10 @@ class PortfolioAllocator:
         self.policy = policy or PortfolioPolicy()
         self.state = PortfolioStore(engine)
         self.gtm_decisions = GTMDecisionStore(engine)
+        self.value = VentureValueEstimator(engine)
 
     def plan(self, budget: PortfolioBudget) -> PortfolioPlan:
-        candidates = self._candidates()[: budget.max_ventures]
+        candidates = self._candidates(budget.currency)[: budget.max_ventures]
         snapshot_hash = self._snapshot_hash(budget, candidates)
         existing = self.state.get_for_snapshot(snapshot_hash)
         if existing is not None:
@@ -188,6 +197,7 @@ class PortfolioAllocator:
                 if budget.allocatable_cash_cents
                 else 0.0
             )
+            estimate = candidate.value_estimate
             allocations.append(
                 VentureAllocation(
                     opportunity_id=candidate.opportunity_id,
@@ -199,6 +209,12 @@ class PortfolioAllocator:
                         f"portfolio priority={candidate.priority_score:.2f}",
                         f"stage={candidate.stage.value}",
                         f"scorecard={candidate.scorecard_total:.1f}/100",
+                        (
+                            "expected net per next resolved contact="
+                            f"{estimate.expected_net_per_next_resolved_contact_cents:.1f} "
+                            f"{budget.currency} cents"
+                        ),
+                        f"economics confidence={estimate.evidence_confidence:.1%}",
                     ],
                 )
             )
@@ -221,6 +237,7 @@ class PortfolioAllocator:
                 data={
                     "snapshot_hash": result.snapshot_hash,
                     "cash_budget_cents": budget.cash_cents,
+                    "currency": budget.currency,
                     "model_call_budget": budget.model_calls,
                     "allocated_cash_cents": result.allocated_cash_cents,
                     "allocated_model_calls": result.allocated_model_calls,
@@ -232,7 +249,7 @@ class PortfolioAllocator:
         )
         return result
 
-    def _candidates(self) -> list[PortfolioCandidate]:
+    def _candidates(self, currency: str) -> list[PortfolioCandidate]:
         scorecards = {card.opportunity_id: card for card in self.engine.store.list_scorecards()}
         output: list[PortfolioCandidate] = []
         for opportunity in self.engine.store.list_opportunities():
@@ -243,6 +260,7 @@ class PortfolioAllocator:
             scorecard = scorecards.get(opportunity.id)
             score_total, capital_efficiency, execution_risk = self._score_inputs(scorecard)
             latest_gtm = self.gtm_decisions.latest(opportunity.id)
+            estimate = self.value.estimate(opportunity.id, currency)
             gtm_multiplier = 1.0
             sales = 0
             positive_rate = 0.0
@@ -263,7 +281,27 @@ class PortfolioAllocator:
                 + (10 - execution_risk) * 1.8
             )
             traction_bonus = min(20.0, sales * 4.0 + positive_rate * 12.0)
-            priority = round((quality + traction_bonus) * stage_multiplier * gtm_multiplier, 4)
+            economics_adjustment = self._economics_adjustment(estimate)
+            exploration_bonus = estimate.uncertainty * score_total * 0.06
+            priority = round(
+                max(
+                    0.0,
+                    quality + traction_bonus + economics_adjustment + exploration_bonus,
+                )
+                * stage_multiplier
+                * gtm_multiplier,
+                4,
+            )
+            rationale.extend(
+                [
+                    f"economics confidence={estimate.evidence_confidence:.1%}",
+                    (
+                        "expected net/contact="
+                        f"{estimate.expected_net_per_next_resolved_contact_cents:.1f} {currency} cents"
+                    ),
+                    f"exploration bonus={exploration_bonus:.2f}",
+                ]
+            )
             output.append(
                 PortfolioCandidate(
                     opportunity_id=opportunity.id,
@@ -275,10 +313,21 @@ class PortfolioAllocator:
                     gtm_decision=gtm_name,
                     sales=sales,
                     positive_rate=positive_rate,
+                    value_estimate=estimate,
                     rationale=rationale,
                 )
             )
         return sorted(output, key=lambda item: (-item.priority_score, str(item.opportunity_id)))
+
+    @staticmethod
+    def _economics_adjustment(estimate: VentureValueEstimate) -> float:
+        expected = estimate.expected_net_per_next_resolved_contact_cents
+        confidence = estimate.evidence_confidence
+        if expected == 0 or confidence == 0:
+            return 0.0
+        magnitude = math.log1p(abs(expected) / 100) * 6 * confidence
+        bounded = min(25.0, magnitude)
+        return bounded if expected > 0 else -bounded
 
     @staticmethod
     def _score_inputs(scorecard: Scorecard | None) -> tuple[float, float, float]:
@@ -347,6 +396,7 @@ class PortfolioAllocator:
                     "gtm_decision": item.gtm_decision,
                     "sales": item.sales,
                     "positive_rate": item.positive_rate,
+                    "value_estimate": item.value_estimate.model_dump(mode="json"),
                 }
                 for item in candidates
             ],
