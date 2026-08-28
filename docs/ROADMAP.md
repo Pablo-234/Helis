@@ -20,7 +20,7 @@
 - [x] experiment designer
 - [x] policy-aware experiment ranking
 
-Exit criterion: met for the business-brain cycle. Portfolio execution can now be woken safely by an external cron/systemd trigger; automatic source scanning remains an infrastructure enhancement.
+Exit criterion: met for the business-brain cycle. Portfolio execution can be woken safely by cron/systemd. Automatic scheduled source scanning remains an infrastructure enhancement.
 
 ## Phase 1 — Validation machine
 
@@ -72,11 +72,15 @@ Exit criterion: met for constrained MVP artifacts. A validated venture can becom
 - [x] per-venture CRM/event trail
 - [x] outreach drafts and run-scoped approval
 - [x] bounded contact batches / anti-spam limits
+- [x] scheduler-driven bounded GTM preparation/approved dispatch
+- [x] GTM lifecycle remains active while measuring/scaling
+- [x] adaptive backoff for repeated no-op acquisition wakes
 - [ ] automatic multi-channel acquisition experiments
 - [ ] automatic pricing experiments
 - [x] response/result ingestion
 - [x] revenue attribution
 - [x] deterministic continue / pause / kill / scale rules over measured GTM outcomes
+- [x] crash-safe response → GTM decision refresh before portfolio allocation
 
 Exit criterion: core path met. A venture can progress from reviewed preview to bounded first contact, measured response and attributed first revenue, then receive an evidence-based GTM allocation decision. Automatic channel/pricing experimentation remains a later enhancement.
 
@@ -92,13 +96,17 @@ Exit criterion: core path met. A venture can progress from reviewed preview to b
 - [x] snapshot-hashed/idempotent portfolio plans
 - [x] persistent cash/model-call resource envelopes
 - [x] two-phase cash commitment accounting (`reserve → settle/release`)
-- [x] envelope-backed venture runtime for validation/build work
+- [x] envelope-backed venture runtime for validation/build/GTM work
 - [x] priority-based bounded portfolio scheduler
 - [x] scheduler skip gates for approvals/results/open commitments/exhausted capacity
 - [x] crash-safe wake policy with throttling and expiring singleton lease
-- [ ] automatic portfolio replan + envelope rollover when GTM/economics materially change
+- [x] automatic portfolio replan + envelope rollover when GTM/economics materially change
+- [x] remaining-treasury rollover never restores consumed cash/model calls
+- [x] open commitments block unsafe supersession
+- [x] activation-race recovery preserves the prior authoritative plan
+- [x] reference systemd/cron host wake deployment
 
-Exit criterion: core path met. HELIS can rank competing ventures, assign scarce money/compute, enforce the allocation during execution, and autonomously select the next eligible funded venture. Automatic re-planning after material outcome changes is the remaining Phase 4 closure item.
+Exit criterion: met for the bounded constrained venture path. HELIS can rank competing ventures, assign scarce money/compute, enforce allocations during execution, select the next eligible funded venture, ingest market outcomes and automatically reallocate only the remaining treasury.
 
 ## Phase 5 — Controlled self-improvement
 
