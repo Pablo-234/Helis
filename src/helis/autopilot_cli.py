@@ -6,7 +6,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from helis.autopilot import AutopilotPolicy, AutonomousOnlineVentureOperator
+from helis.autopilot import AutonomousOnlineVentureOperator, AutopilotPolicy
 from helis.contact_gateway import ApprovedContactGateway
 from helis.engine import HelisEngine
 from helis.model_provider import OpenAICompatibleProvider
