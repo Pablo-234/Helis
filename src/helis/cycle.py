@@ -47,11 +47,13 @@ class HelisCycle:
         provider: ModelProvider,
         budget: CycleBudget | None = None,
         policy: AutonomyPolicy | None = None,
+        *,
+        online_only: bool = False,
     ) -> None:
         self.engine = engine
         self.budget = budget or CycleBudget()
         self.policy = policy or AutonomyPolicy()
-        self.scout = OpportunityScout(provider, self.budget)
+        self.scout = OpportunityScout(provider, self.budget, online_only=online_only)
         self.analyst = OpportunityAnalyst(provider, self.budget)
         self.skeptic = VentureSkeptic(provider, self.budget)
         self.experiment_designer = ExperimentDesigner(provider, self.budget)
