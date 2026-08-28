@@ -18,6 +18,7 @@ class VentureStage(StrEnum):
     VALIDATING = "validating"
     VALIDATED = "validated"
     BUILDING = "building"
+    READY_PREVIEW = "ready_preview"
     LAUNCHED = "launched"
     MEASURING = "measuring"
     SCALING = "scaling"
@@ -230,6 +231,89 @@ class VentureDecision(BaseModel):
     result_ids: list[UUID] = Field(default_factory=list)
     suggested_pivot: str | None = None
     decided_at: datetime = Field(default_factory=utc_now)
+
+
+class BuildTemplate(StrEnum):
+    STATIC_WEB = "static_web_v1"
+    CONCIERGE_OPS = "concierge_ops_v1"
+
+
+class BuildStatus(StrEnum):
+    PLANNED = "planned"
+    VERIFIED = "verified"
+    READY_PREVIEW = "ready_preview"
+    FAILED = "failed"
+    BLOCKED = "blocked"
+    CANCELLED = "cancelled"
+
+
+class BuildSpec(BaseModel):
+    id: UUID = Field(default_factory=uuid4)
+    opportunity_id: UUID
+    template: BuildTemplate
+    name: str = Field(min_length=3, max_length=120)
+    goal: str = Field(min_length=10, max_length=1200)
+    acceptance_criteria: list[str] = Field(min_length=2, max_length=8)
+    max_files: int = Field(default=6, ge=1, le=20)
+    max_total_bytes: int = Field(default=80_000, ge=1, le=1_000_000)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class BuildFile(BaseModel):
+    path: str = Field(min_length=1, max_length=240)
+    content: str = Field(min_length=1, max_length=250_000)
+
+
+class BuildBundle(BaseModel):
+    files: list[BuildFile] = Field(min_length=1, max_length=20)
+
+
+class BuildRun(BaseModel):
+    id: UUID = Field(default_factory=uuid4)
+    spec_id: UUID
+    opportunity_id: UUID
+    status: BuildStatus = BuildStatus.PLANNED
+    workspace: str | None = None
+    file_paths: list[str] = Field(default_factory=list)
+    attempt: int = Field(default=1, ge=1)
+    error: str | None = None
+    completed_at: datetime | None = None
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class BuildCheck(BaseModel):
+    id: UUID = Field(default_factory=uuid4)
+    run_id: UUID | None = None
+    name: str = Field(min_length=2, max_length=120)
+    passed: bool
+    details: str = Field(min_length=1, max_length=2000)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class BuildReviewVerdict(StrEnum):
+    PASS = "pass"
+    FAIL = "fail"
+
+
+class BuildReview(BaseModel):
+    id: UUID = Field(default_factory=uuid4)
+    run_id: UUID
+    verdict: BuildReviewVerdict
+    score: float = Field(ge=0, le=10)
+    blocking_issues: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    summary: str = Field(min_length=3, max_length=2000)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class PreviewManifest(BaseModel):
+    id: UUID = Field(default_factory=uuid4)
+    run_id: UUID
+    opportunity_id: UUID
+    workspace: str = Field(min_length=1)
+    entrypoint: str = Field(min_length=1, max_length=240)
+    artifact_hash: str = Field(min_length=64, max_length=64)
+    created_at: datetime = Field(default_factory=utc_now)
 
 
 class AuditEvent(BaseModel):
