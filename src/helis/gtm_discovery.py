@@ -5,14 +5,14 @@ from uuid import UUID
 
 from helis.budget import BudgetExceeded, CycleBudget
 from helis.domain import AuditEvent, Opportunity, VentureStage
-from helis.gtm_domain import Lead, LeadStage, OutreachDraft, ProspectQuery
+from helis.engine import HelisEngine
+from helis.gtm_domain import Lead, LeadStage
 from helis.gtm_store import GTMStore
 from helis.lead_qualifier import LeadQualifier
 from helis.model_provider import ModelProvider
 from helis.outreach_drafter import OutreachDrafter
 from helis.prospect_gateway import ProspectGateway
 from helis.prospect_planner import ProspectPlanner
-from helis.engine import HelisEngine
 
 
 @dataclass(slots=True)
