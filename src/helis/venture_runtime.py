@@ -6,8 +6,12 @@ from uuid import UUID
 
 from helis.builder_machine import BuilderMachine, BuildTickReport
 from helis.cash_reservation import CashReservationManager
+from helis.contact_gateway import ContactGateway
 from helis.engine import HelisEngine
+from helis.gtm_lifecycle import gtm_is_active
+from helis.gtm_runtime import GTMRuntime, GTMTickReport
 from helis.model_provider import ModelProvider
+from helis.prospect_gateway import ProspectGateway
 from helis.resource_envelope import (
     EnvelopeCycleBudget,
     EnvelopeExceeded,
@@ -26,6 +30,13 @@ class VentureRuntimeReport:
     budget: EnvelopeCycleBudget
     validation: ValidationTickReport | None = None
     build: BuildTickReport | None = None
+    gtm: GTMTickReport | None = None
+
+    @property
+    def did_work(self) -> bool:
+        if self.gtm is not None:
+            return self.gtm.did_work
+        return True
 
 
 class VentureRuntime:
@@ -39,6 +50,8 @@ class VentureRuntime:
         *,
         workspace_root: str | Path = ".helis/workspaces",
         validation_gateway: ApprovedValidationGateway | None = None,
+        prospect_gateway: ProspectGateway | None = None,
+        contact_gateway: ContactGateway | None = None,
     ) -> None:
         self.engine = engine
         self.provider = provider
@@ -56,6 +69,8 @@ class VentureRuntime:
         self.opportunity_id = envelope.opportunity_id
         self.workspace_root = Path(workspace_root)
         self.validation_gateway = validation_gateway
+        self.prospect_gateway = prospect_gateway
+        self.contact_gateway = contact_gateway
 
     def validate(
         self,
@@ -112,6 +127,31 @@ class VentureRuntime:
             build=report,
         )
 
+    def market(
+        self,
+        *,
+        max_tokens: int = 45_000,
+        max_model_cost_cents: float = 15.0,
+    ) -> VentureRuntimeReport:
+        envelope = self._active_envelope()
+        budget = self.envelopes.model_budget(
+            envelope.id,
+            max_tokens=max_tokens,
+            max_model_cost_cents=max_model_cost_cents,
+        )
+        report = GTMRuntime(
+            self.engine,
+            self.provider,
+            budget,
+            prospect_gateway=self.prospect_gateway,
+            contact_gateway=self.contact_gateway,
+        ).tick(self.opportunity_id)
+        return VentureRuntimeReport(
+            envelope=self._require_envelope(),
+            budget=budget,
+            gtm=report,
+        )
+
     def advance(
         self,
         *,
@@ -119,7 +159,16 @@ class VentureRuntime:
         max_model_cost_cents: float = 20.0,
         validation_cash_cents: float = 0.0,
     ) -> VentureRuntimeReport:
-        """Use one shared envelope-backed model budget for validate then build."""
+        """Advance the venture's current lifecycle phase under one persistent envelope."""
+        opportunity = self.engine.store.get_opportunity(self.opportunity_id)
+        if opportunity is None:
+            raise ValueError(f"venture not found: {self.opportunity_id}")
+        if gtm_is_active(opportunity.stage):
+            return self.market(
+                max_tokens=max_tokens,
+                max_model_cost_cents=max_model_cost_cents,
+            )
+
         envelope = self._active_envelope()
         self._check_cash_cap(envelope, validation_cash_cents)
         budget = self.envelopes.model_budget(
