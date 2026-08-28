@@ -4,9 +4,10 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from helis.budget import BudgetExceeded, CycleBudget
-from helis.domain import AuditEvent, Opportunity, VentureStage
+from helis.domain import AuditEvent, Opportunity
 from helis.engine import HelisEngine
 from helis.gtm_domain import Lead, LeadStage
+from helis.gtm_lifecycle import gtm_is_active
 from helis.gtm_store import GTMStore
 from helis.lead_qualifier import LeadQualifier
 from helis.model_provider import ModelProvider
@@ -144,11 +145,11 @@ class GTMDiscoveryMachine:
     def _target(self, opportunity_id: UUID | None) -> Opportunity | None:
         if opportunity_id is not None:
             opportunity = self.engine.store.get_opportunity(opportunity_id)
-            if opportunity is None or opportunity.stage != VentureStage.READY_PREVIEW:
+            if opportunity is None or not gtm_is_active(opportunity.stage):
                 return None
             return opportunity
         for opportunity in self.engine.store.list_opportunities():
-            if opportunity.stage == VentureStage.READY_PREVIEW:
+            if gtm_is_active(opportunity.stage):
                 return opportunity
         return None
 
