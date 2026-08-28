@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from helis.domain import VentureStage
 
-
 ACTIVE_GTM_STAGES = frozenset(
     {
         VentureStage.READY_PREVIEW,
