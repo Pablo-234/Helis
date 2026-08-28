@@ -23,6 +23,7 @@ class SelfImprovementGatewayConfigurationError(ValueError):
 class EvaluationGatewayResponse(BaseModel):
     candidate_hash: str = Field(min_length=64, max_length=64)
     metric_name: str = Field(min_length=2, max_length=120)
+    baseline_file_hashes: dict[str, str] = Field(default_factory=dict)
     baseline: EvaluationSnapshot
     candidate: EvaluationSnapshot
     regressions: list[str] = Field(default_factory=list, max_length=30)
@@ -107,6 +108,7 @@ class ApprovedSelfImprovementEvaluationGateway:
                     "files": [item.model_dump(mode="json") for item in candidate.files],
                 },
                 "constraints": {
+                    "attest_exact_baseline_file_hashes": True,
                     "immutable_baseline_tests": True,
                     "same_test_suite_for_baseline_and_candidate": True,
                     "candidate_network_disabled": True,
