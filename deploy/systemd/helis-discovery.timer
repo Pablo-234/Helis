@@ -1,0 +1,12 @@
+[Unit]
+Description=Wake HELIS market discovery periodically
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=15min
+RandomizedDelaySec=60s
+Persistent=true
+Unit=helis-discovery.service
+
+[Install]
+WantedBy=timers.target
