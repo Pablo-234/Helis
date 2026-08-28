@@ -12,14 +12,15 @@
 - [x] bounded observe → discover → evaluate cycle
 - [x] RSS + GitHub issue + Hacker News source adapters
 - [x] configurable source registry
-- [ ] scheduled scanning / wake policy
+- [x] cron-safe scheduler wake policy + expiring single-worker lease
+- [ ] scheduled source scanning orchestration
 - [x] processed-observation cursor / no-work zero-call cycles
 - [x] duplicate/opportunity clustering baseline
 - [x] skeptic pass / falsifiable assumptions
 - [x] experiment designer
 - [x] policy-aware experiment ranking
 
-Exit criterion: met for an operator-triggered cycle. Scheduled waking remains an infrastructure enhancement.
+Exit criterion: met for the business-brain cycle. Portfolio execution can now be woken safely by an external cron/systemd trigger; automatic source scanning remains an infrastructure enhancement.
 
 ## Phase 1 — Validation machine
 
@@ -34,6 +35,7 @@ Exit criterion: met for an operator-triggered cycle. Scheduled waking remains an
 - [ ] smoke-test publication adapter
 - [ ] concierge adapter
 - [x] validation execution/cash budget
+- [x] automatic two-phase cash reservation around paid external validation
 - [x] automatic result ingestion for built-in adapters
 - [x] generic external result ingestion path
 - [x] run-scoped approval state
@@ -80,16 +82,23 @@ Exit criterion: core path met. A venture can progress from reviewed preview to b
 
 ## Phase 4 — Portfolio / capital allocator
 
-- [ ] expected-value portfolio model with explicit uncertainty
+- [x] expected-value portfolio model with explicit uncertainty
+- [x] currency-separated realized revenue/cost/net economics
+- [x] realized ROI / cost feedback into future portfolio weights
 - [x] bounded compute and cash allocation plan per venture
 - [x] reserve floor and per-venture concentration cap
 - [x] killed/paused ventures receive zero new allocation
 - [x] scaling and measured traction influence deterministic priority
 - [x] snapshot-hashed/idempotent portfolio plans
-- [ ] automatic execution of approved resource envelopes
-- [ ] realized ROI / cost feedback into future portfolio weights
+- [x] persistent cash/model-call resource envelopes
+- [x] two-phase cash commitment accounting (`reserve → settle/release`)
+- [x] envelope-backed venture runtime for validation/build work
+- [x] priority-based bounded portfolio scheduler
+- [x] scheduler skip gates for approvals/results/open commitments/exhausted capacity
+- [x] crash-safe wake policy with throttling and expiring singleton lease
+- [ ] automatic portfolio replan + envelope rollover when GTM/economics materially change
 
-Exit criterion: HELIS allocates scarce money/compute between competing ventures instead of merely running them all. Initial allocator plans resources only; actual spending/execution remains separately gated.
+Exit criterion: core path met. HELIS can rank competing ventures, assign scarce money/compute, enforce the allocation during execution, and autonomously select the next eligible funded venture. Automatic re-planning after material outcome changes is the remaining Phase 4 closure item.
 
 ## Phase 5 — Controlled self-improvement
 
