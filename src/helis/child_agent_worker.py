@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from uuid import UUID, uuid4, uuid5
@@ -180,12 +179,12 @@ class ChildAgentWorker:
     def recover_stale_processing(self, *, older_than_minutes: int = 60) -> int:
         if older_than_minutes < 1:
             raise ValueError("older_than_minutes must be positive")
-        threshold = datetime.now(timezone.utc) - timedelta(minutes=older_than_minutes)
+        threshold = datetime.now(UTC) - timedelta(minutes=older_than_minutes)
         recovered = 0
         processing_dir = self.queue_root / WorkJobStatus.PROCESSING.value
         pending_dir = self.queue_root / WorkJobStatus.PENDING.value
         for path in processing_dir.glob("*.json"):
-            modified = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+            modified = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
             if modified >= threshold:
                 continue
             job_id = UUID(path.stem)
