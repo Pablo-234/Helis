@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
 
-from helis.agent_spec_planner import AgentSpecPlanReport, AgentSpecPlanner
+from helis.agent_spec_planner import AgentSpecPlanner, AgentSpecPlanReport
 from helis.bot_architect import ArchitecturePlanReport, BotArchitect
 from helis.builder_machine import BuilderMachine, BuildTickReport
 from helis.cash_reservation import CashReservationManager
