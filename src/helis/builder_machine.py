@@ -5,7 +5,11 @@ from pathlib import Path
 from uuid import UUID
 
 from helis.budget import BudgetExceeded, CycleBudget
-from helis.build_execution import BuildExecutionBackend, BuildExecutionError
+from helis.build_execution import (
+    BuildExecutionBackend,
+    BuildExecutionError,
+    DockerBuildExecutionBackend,
+)
 from helis.build_templates import get_template
 from helis.builder_generator import BuilderGenerator, BuildGenerationError
 from helis.builder_planner import BuildPlanningError, BuilderPlanner
@@ -58,8 +62,13 @@ class BuilderMachine:
             raise ValueError("max_attempts must be between 1 and 3")
         self.engine = engine
         self.budget = budget
+        self.execution_backend = (
+            execution_backend
+            if execution_backend is not None
+            else DockerBuildExecutionBackend.from_env()
+        )
         enabled_templates = {BuildTemplate.STATIC_WEB, BuildTemplate.CONCIERGE_OPS}
-        if execution_backend is not None:
+        if self.execution_backend is not None:
             enabled_templates.add(BuildTemplate.PYTHON_SERVICE)
         self.planner = BuilderPlanner(
             provider,
@@ -71,7 +80,6 @@ class BuilderMachine:
         self.reviewer = AdversarialBuildReviewer(provider, budget)
         self.verifier = BuildVerifier()
         self.sandbox = BuildSandbox(workspace_root)
-        self.execution_backend = execution_backend
         self.max_attempts = max_attempts
 
     def tick(self, opportunity_id: UUID | None = None) -> BuildTickReport:
