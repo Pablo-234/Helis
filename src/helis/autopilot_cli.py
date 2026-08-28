@@ -12,18 +12,35 @@ from helis.engine import HelisEngine
 from helis.model_provider import OpenAICompatibleProvider
 from helis.portfolio import PortfolioStore
 from helis.prospect_gateway import ApprovedProspectGateway
-from helis.source_registry import SourceRegistry
+from helis.source_registry import HelisConfig, SourceKind, SourceRegistry, SourceSpec
 from helis.store import HelisStore
 from helis.validation_gateway import ApprovedValidationGateway
 
 app = typer.Typer(
-    help="HELIS autonomous online-business operator: start with no idea and build from market evidence"
+    help="HELIS autonomous online-business operator: start with no idea and build toward revenue"
 )
 console = Console()
 
 
 def _engine(db: Path) -> HelisEngine:
     return HelisEngine(HelisStore(db))
+
+
+def _scanner(config: Path) -> SourceRegistry:
+    if config.is_file():
+        return SourceRegistry.from_toml(config)
+    return SourceRegistry(
+        HelisConfig(
+            sources=[
+                SourceSpec(
+                    name="hacker-news-ask",
+                    kind=SourceKind.HACKER_NEWS,
+                    feed="ask",
+                    limit=60,
+                )
+            ]
+        )
+    )
 
 
 def _operator(
@@ -34,7 +51,7 @@ def _operator(
     return AutonomousOnlineVentureOperator(
         engine,
         OpenAICompatibleProvider.from_env(),
-        lambda: SourceRegistry.from_toml(config),
+        lambda: _scanner(config),
         workspace_root=workspace_root,
         validation_gateway=ApprovedValidationGateway.from_env(),
         prospect_gateway=ApprovedProspectGateway.from_env(),
@@ -52,7 +69,7 @@ def _print_ventures(engine: HelisEngine) -> None:
         console.print("online ventures: [yellow]none persisted[/]")
         return
 
-    table = Table("Stage", "Model", "Delivery", "Revenue", "Score", "Venture")
+    table = Table("Stage", "Model", "Delivery", "Revenue model", "Score", "Venture")
     for item in sorted(ventures, key=lambda venture: (venture.stage.value, venture.title)):
         model = item.business_model
         if model is None:
@@ -68,20 +85,19 @@ def _print_ventures(engine: HelisEngine) -> None:
     console.print(table)
 
 
-@app.command()
-def run(
-    config: Path = Path("helis.toml"),
-    db: Path = Path("helis.db"),
-    workspace_root: Path = Path(".helis/workspaces"),
-    cash_cents: int = typer.Option(0, min=0, help="Maximum cash treasury; default is zero"),
-    currency: str = typer.Option("PLN", min=3, max=3),
-    portfolio_model_calls: int = typer.Option(80, min=1, max=10_000),
-    discovery_model_calls: int = typer.Option(8, min=1, max=100),
-    max_ventures: int = typer.Option(3, min=1, max=20),
-    max_rounds: int = typer.Option(12, min=1, max=100),
-    max_advances_per_round: int = typer.Option(3, min=1, max=20),
+def _run(
+    *,
+    config: Path,
+    db: Path,
+    workspace_root: Path,
+    cash_cents: int,
+    currency: str,
+    portfolio_model_calls: int,
+    discovery_model_calls: int,
+    max_ventures: int,
+    max_rounds: int,
+    max_advances_per_round: int,
 ) -> None:
-    """Start from zero: discover online businesses, fund them, and advance them autonomously."""
     engine = _engine(db)
     report = _operator(engine, config, workspace_root).run(
         AutopilotPolicy(
@@ -96,20 +112,16 @@ def run(
     )
 
     discovery = report.discovery
-    console.print("[bold green]HELIS AUTOPILOT RUN COMPLETE[/]")
+    console.print("[bold green]HELIS ZERO-TO-REVENUE RUN COMPLETE[/]")
     console.print(
         "discovery: "
         f"fetched={discovery.observations_fetched} new={discovery.observations_new} "
-        f"used={discovery.observations_used} online_ventures={discovery.candidates_discovered} "
+        f"used={discovery.observations_used} discovered={discovery.candidates_discovered} "
         f"evaluated={discovery.candidates_evaluated} experiments={discovery.experiments_planned}"
     )
     console.print(
-        f"discovery model usage: calls={discovery.model_calls} tokens={discovery.tokens} "
-        f"configured-cost≈{discovery.cost_cents:.3f}¢"
-    )
-    console.print(
-        f"portfolio={report.portfolio_plan_id or '-'} bootstrapped={report.portfolio_bootstrapped} "
-        f"funded_ventures={report.funded_ventures}"
+        f"portfolio={report.portfolio_plan_id or '-'} funded_ventures={report.funded_ventures} "
+        f"revenue={report.revenue_cents} {report.currency}¢"
     )
     for index, tick in enumerate(report.scheduler_rounds, start=1):
         console.print(
@@ -118,16 +130,71 @@ def run(
         )
         for item in tick.items:
             console.print(
-                f"  {item.disposition.value}: venture={item.opportunity_id} reason={item.reason} "
-                f"calls={item.model_calls_before}→{item.model_calls_after}"
+                f"  {item.disposition.value}: venture={item.opportunity_id} reason={item.reason}"
             )
     console.print(f"stop={report.stop_reason.value}")
     if report.blockers:
-        console.print("blockers/checkpoints:")
+        console.print("next real-world gates:")
         for blocker in report.blockers:
             console.print(f"  - {blocker}")
     console.print(f"stages={report.stage_counts}")
     _print_ventures(engine)
+
+
+@app.command()
+def start(
+    config: Path = Path("helis.toml"),
+    db: Path = Path("helis.db"),
+    workspace_root: Path = Path(".helis/workspaces"),
+    cash_cents: int = typer.Option(0, min=0),
+    currency: str = typer.Option("PLN", min=3, max=3),
+    portfolio_model_calls: int = typer.Option(80, min=1, max=10_000),
+    discovery_model_calls: int = typer.Option(8, min=1, max=100),
+    max_ventures: int = typer.Option(3, min=1, max=20),
+    max_rounds: int = typer.Option(12, min=1, max=100),
+    max_advances_per_round: int = typer.Option(3, min=1, max=20),
+) -> None:
+    """Start from a blank HELIS database and advance online ventures toward real revenue."""
+    _run(
+        config=config,
+        db=db,
+        workspace_root=workspace_root,
+        cash_cents=cash_cents,
+        currency=currency,
+        portfolio_model_calls=portfolio_model_calls,
+        discovery_model_calls=discovery_model_calls,
+        max_ventures=max_ventures,
+        max_rounds=max_rounds,
+        max_advances_per_round=max_advances_per_round,
+    )
+
+
+@app.command()
+def run(
+    config: Path = Path("helis.toml"),
+    db: Path = Path("helis.db"),
+    workspace_root: Path = Path(".helis/workspaces"),
+    cash_cents: int = typer.Option(0, min=0),
+    currency: str = typer.Option("PLN", min=3, max=3),
+    portfolio_model_calls: int = typer.Option(80, min=1, max=10_000),
+    discovery_model_calls: int = typer.Option(8, min=1, max=100),
+    max_ventures: int = typer.Option(3, min=1, max=20),
+    max_rounds: int = typer.Option(12, min=1, max=100),
+    max_advances_per_round: int = typer.Option(3, min=1, max=20),
+) -> None:
+    """Backward-compatible alias for start."""
+    _run(
+        config=config,
+        db=db,
+        workspace_root=workspace_root,
+        cash_cents=cash_cents,
+        currency=currency,
+        portfolio_model_calls=portfolio_model_calls,
+        discovery_model_calls=discovery_model_calls,
+        max_ventures=max_ventures,
+        max_rounds=max_rounds,
+        max_advances_per_round=max_advances_per_round,
+    )
 
 
 @app.command()
