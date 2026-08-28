@@ -236,6 +236,7 @@ class VentureDecision(BaseModel):
 class BuildTemplate(StrEnum):
     STATIC_WEB = "static_web_v1"
     CONCIERGE_OPS = "concierge_ops_v1"
+    PYTHON_SERVICE = "python_service_v1"
 
 
 class BuildStatus(StrEnum):
