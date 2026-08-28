@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, field_validator
 
+from helis.commerce_store import CommerceStore
 from helis.domain import AuditEvent, utc_now
 from helis.engine import HelisEngine
 from helis.gtm_domain import LeadResponseKind
@@ -119,6 +120,7 @@ class VentureValueEstimator:
     def __init__(self, engine: HelisEngine) -> None:
         self.engine = engine
         self.gtm = GTMStore(engine.store)
+        self.commerce = CommerceStore(engine.store)
         self.economics = VentureEconomicsStore(engine)
 
     def record_cost(self, event: VentureCostEvent) -> VentureCostEvent:
@@ -145,19 +147,25 @@ class VentureValueEstimator:
     def estimate(self, opportunity_id: UUID, currency: str) -> VentureValueEstimate:
         currency = currency.upper()
         responses = self.gtm.list_responses(opportunity_id)
-        resolved = len(responses)
-        paid_sales = [
+        paid_outreach = [
             response
             for response in responses
             if response.kind == LeadResponseKind.SALE
             and response.currency.upper() == currency
             and response.revenue_cents > 0
         ]
+        direct_sales = [
+            event
+            for event in self.commerce.list_revenue(opportunity_id)
+            if event.currency.upper() == currency and event.amount_cents > 0
+        ]
+        resolved = len(responses) + len(direct_sales)
+        paid_sale_count = len(paid_outreach) + len(direct_sales)
         revenue = sum(
             event.amount_cents
             for event in self.gtm.list_revenue(opportunity_id)
             if event.currency.upper() == currency
-        )
+        ) + sum(event.amount_cents for event in direct_sales)
         costs = sum(
             event.amount_cents
             for event in self.economics.list_costs(opportunity_id)
@@ -165,8 +173,8 @@ class VentureValueEstimator:
         )
 
         # Conservative Beta(1, 9) prior: before data, paid-sale probability is 10%.
-        posterior_sale_probability = (len(paid_sales) + 1) / (resolved + 10)
-        average_sale_value = revenue / len(paid_sales) if paid_sales else 0.0
+        posterior_sale_probability = (paid_sale_count + 1) / (resolved + 10)
+        average_sale_value = revenue / paid_sale_count if paid_sale_count else 0.0
         expected_revenue = posterior_sale_probability * average_sale_value
         observed_cost_per_outcome = costs / resolved if resolved else 0.0
         expected_net = expected_revenue - observed_cost_per_outcome
@@ -179,7 +187,7 @@ class VentureValueEstimator:
             opportunity_id=opportunity_id,
             currency=currency,
             resolved_outcomes=resolved,
-            paid_sales=len(paid_sales),
+            paid_sales=paid_sale_count,
             observed_revenue_cents=revenue,
             observed_cost_cents=costs,
             realized_net_cents=revenue - costs,
