@@ -16,6 +16,9 @@ from helis.builder_planner import BuilderPlanner, BuildPlanningError
 from helis.builder_repair import BuilderRepairer
 from helis.builder_review import AdversarialBuildReviewer
 from helis.builder_sandbox import BuildSandbox, BuildVerifier, UnsafeBuildArtifact, bundle_hash
+from helis.commerce_build_verifier import CommerceBuildVerifier
+from helis.commerce_domain import CommerceBuildContext
+from helis.commerce_manager import CommerceManager
 from helis.domain import (
     BuildBundle,
     BuildCheck,
@@ -79,6 +82,8 @@ class BuilderMachine:
         self.repairer = BuilderRepairer(provider, budget)
         self.reviewer = AdversarialBuildReviewer(provider, budget)
         self.verifier = BuildVerifier()
+        self.commerce_verifier = CommerceBuildVerifier()
+        self.commerce = CommerceManager(engine)
         self.sandbox = BuildSandbox(workspace_root)
         self.max_attempts = max_attempts
 
@@ -95,11 +100,18 @@ class BuilderMachine:
                 run=self.engine.store.get_build_run(existing_preview.run_id),
             )
 
+        commerce = self.commerce.build_context(opportunity.id)
+        if self.commerce.is_eligible(opportunity) and commerce is None:
+            return BuildTickReport(
+                opportunity_id=opportunity.id,
+                blocked_reason="self-serve commerce checkout must be active before build",
+            )
+
         validation_results = self.engine.store.list_validation_results(opportunity.id)
         spec = self.engine.store.get_build_spec_for_opportunity(opportunity.id)
         if spec is None:
             try:
-                spec = self.planner.plan(opportunity, validation_results)
+                spec = self.planner.plan(opportunity, validation_results, commerce)
             except BudgetExceeded:
                 return BuildTickReport(
                     opportunity_id=opportunity.id,
@@ -162,6 +174,7 @@ class BuilderMachine:
                     spec,
                     validation_results,
                     failed_source,
+                    commerce,
                 )
             except BudgetExceeded:
                 return BuildTickReport(
@@ -181,7 +194,10 @@ class BuilderMachine:
                     repair_attempted=repair_attempted,
                 )
 
-            checks = self.verifier.verify(spec, bundle)
+            checks = [
+                *self.verifier.verify(spec, bundle),
+                *self.commerce_verifier.verify(spec, bundle, commerce),
+            ]
             for check in checks:
                 check.run_id = run.id
                 self.engine.record_build_check(check)
@@ -270,7 +286,7 @@ class BuilderMachine:
         if run.status == BuildStatus.VERIFIED:
             try:
                 bundle = self.sandbox.read(run)
-                review = self.reviewer.review(opportunity, spec, run, bundle)
+                review = self.reviewer.review(opportunity, spec, run, bundle, commerce)
             except BudgetExceeded:
                 return BuildTickReport(
                     opportunity_id=opportunity.id,
@@ -348,9 +364,10 @@ class BuilderMachine:
         spec: BuildSpec,
         validation_results: list,
         failed_source: BuildRun | None,
+        commerce: CommerceBuildContext | None,
     ) -> BuildBundle:
         if failed_source is None:
-            return self.generator.generate(opportunity, spec, validation_results)
+            return self.generator.generate(opportunity, spec, validation_results, commerce)
 
         previous_bundle: BuildBundle | None = None
         if failed_source.workspace:
@@ -366,6 +383,7 @@ class BuilderMachine:
             self.engine.store.list_build_checks(failed_source.id),
             self.engine.store.get_build_review(failed_source.id),
             previous_bundle,
+            commerce,
         )
 
     def _fail(self, run: BuildRun, error: str, event_type: str) -> BuildRun:
