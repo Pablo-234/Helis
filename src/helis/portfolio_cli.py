@@ -49,7 +49,7 @@ def _print_plan(plan) -> None:
 @app.command()
 def plan(
     cash_cents: int = typer.Option(0, min=0),
-    currency: str = typer.Option("PLN", min=3, max=3),
+    currency: str = typer.Option("PLN"),
     model_calls: int = typer.Option(0, min=0),
     reserve_fraction: float = typer.Option(0.20, min=0, max=0.90),
     max_ventures: int = typer.Option(4, min=1, max=50),
@@ -74,7 +74,7 @@ def plan(
 def record_cost(
     opportunity_id: str,
     amount_cents: int = typer.Option(..., min=1),
-    currency: str = typer.Option("PLN", min=3, max=3),
+    currency: str = typer.Option("PLN"),
     source: str = typer.Option(...),
     external_ref: str | None = typer.Option(None),
     db: Path = Path("helis.db"),
@@ -99,7 +99,7 @@ def record_cost(
 @app.command("economics")
 def economics(
     opportunity_id: str,
-    currency: str = typer.Option("PLN", min=3, max=3),
+    currency: str = typer.Option("PLN"),
     db: Path = Path("helis.db"),
 ) -> None:
     """Show the current currency-specific economics estimate for one venture."""
