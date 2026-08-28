@@ -80,6 +80,7 @@ class VentureRuntime:
                 max_cash_cents=validation_cash_cents,
             ),
             external_gateway=self.validation_gateway,
+            cash_envelope_id=envelope.id,
         ).tick(self.opportunity_id)
         return VentureRuntimeReport(
             envelope=self._require_envelope(),
@@ -135,6 +136,7 @@ class VentureRuntime:
                 max_cash_cents=validation_cash_cents,
             ),
             external_gateway=self.validation_gateway,
+            cash_envelope_id=envelope.id,
         ).tick(self.opportunity_id)
         build = BuilderMachine(
             self.engine,
