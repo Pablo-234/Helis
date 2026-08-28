@@ -17,6 +17,7 @@ from helis.model_provider import ModelProvider
 from helis.portfolio import PortfolioAllocator, PortfolioBudget, PortfolioPlan, PortfolioStore
 from helis.portfolio_reallocation import ReallocatingPortfolioControlLoop
 from helis.portfolio_scheduler import PortfolioScheduler, SchedulerTickReport
+from helis.portfolio_value import VentureValueEstimator
 from helis.prospect_gateway import ProspectGateway
 from helis.resource_envelope import ResourceEnvelopeManager
 from helis.source_registry import RegistryScanResult
@@ -24,6 +25,7 @@ from helis.validation_gateway import ApprovedValidationGateway
 
 
 class AutopilotStopReason(StrEnum):
+    REVENUE_OBSERVED = "revenue_observed"
     REAL_WORLD_GATE = "real_world_gate"
     NO_ONLINE_OPPORTUNITIES = "no_online_opportunities"
     NO_FUNDED_VENTURES = "no_funded_ventures"
@@ -91,6 +93,8 @@ class AutopilotReport(BaseModel):
     stop_reason: AutopilotStopReason
     blockers: list[str] = Field(default_factory=list)
     stage_counts: dict[str, int] = Field(default_factory=dict)
+    revenue_cents: int = Field(default=0, ge=0)
+    currency: str = "PLN"
 
     @property
     def total_advanced(self) -> int:
@@ -110,12 +114,7 @@ REAL_WORLD_GATE_MARKERS = (
 
 
 class AutonomousOnlineVentureOperator:
-    """One command: internet evidence -> online ventures -> portfolio -> bounded execution.
-
-    It never asks the operator for a business idea. Side effects still obey the existing HELIS
-    approval/gateway boundaries; reaching such a boundary is a successful stop condition rather
-    than permission for the model to bypass it.
-    """
+    """Internet evidence -> online venture -> bounded execution -> measured revenue."""
 
     def __init__(
         self,
@@ -141,11 +140,23 @@ class AutonomousOnlineVentureOperator:
         discovery = self._discover(selected)
         plan, bootstrapped = self._ensure_portfolio(selected)
         funded = len(plan.allocations) if plan is not None else 0
+        revenue = self._online_revenue(selected.currency)
+
+        if revenue > 0:
+            return self._report(
+                discovery,
+                plan,
+                bootstrapped,
+                [],
+                AutopilotStopReason.REVENUE_OBSERVED,
+                [],
+                selected.currency,
+            )
 
         if plan is None or funded == 0:
             stop = (
                 AutopilotStopReason.NO_ONLINE_OPPORTUNITIES
-                if not self._has_online_candidates()
+                if not self._online_ids()
                 else AutopilotStopReason.NO_FUNDED_VENTURES
             )
             return self._report(
@@ -154,7 +165,8 @@ class AutonomousOnlineVentureOperator:
                 bootstrapped,
                 [],
                 stop,
-                ["no venture received a resource allocation"],
+                ["no online venture received a resource allocation"],
+                selected.currency,
             )
 
         scheduler = PortfolioScheduler(
@@ -171,28 +183,29 @@ class AutonomousOnlineVentureOperator:
         stop_reason = AutopilotStopReason.ROUND_CAP
 
         for _ in range(selected.max_rounds):
-            # Only re-bootstrap an empty plan. Never mint a fresh full budget after any funded plan
-            # exists; ReallocatingPortfolioControlLoop owns safe remaining-treasury rollover.
             current, _ = self._ensure_portfolio(selected)
             if current is None or not current.allocations:
                 stop_reason = AutopilotStopReason.NO_FUNDED_VENTURES
-                blockers = ["portfolio has no active allocations"]
+                blockers = ["online portfolio has no active allocations"]
                 break
 
             tick = control.tick(max_advances=selected.max_advances_per_round)
             rounds.append(tick)
+            if self._online_revenue(selected.currency) > 0:
+                stop_reason = AutopilotStopReason.REVENUE_OBSERVED
+                blockers = []
+                break
+
             reasons = [item.reason for item in tick.items if item.reason]
             gates = sorted({reason for reason in reasons if self._is_real_world_gate(reason)})
-
             if tick.advanced > 0:
-                # Durable progress happened; continue until the next checkpoint/gate or round cap.
                 continue
             if gates:
                 stop_reason = AutopilotStopReason.REAL_WORLD_GATE
                 blockers = gates
                 break
             stop_reason = AutopilotStopReason.NO_PROGRESS
-            blockers = sorted(set(reasons)) or ["scheduler had no actionable funded venture"]
+            blockers = sorted(set(reasons)) or ["scheduler had no actionable funded online venture"]
             break
 
         return self._report(
@@ -202,6 +215,7 @@ class AutonomousOnlineVentureOperator:
             rounds,
             stop_reason,
             blockers,
+            selected.currency,
         )
 
     def _discover(self, policy: AutopilotPolicy) -> AutopilotDiscoveryReport:
@@ -243,21 +257,38 @@ class AutonomousOnlineVentureOperator:
         self,
         policy: AutopilotPolicy,
     ) -> tuple[PortfolioPlan | None, bool]:
+        online_ids = self._online_ids()
+        if not online_ids:
+            return None, False
+
         store = PortfolioStore(self.engine)
         latest = store.latest()
         if latest is not None and latest.allocations:
-            return latest, False
+            allocated_ids = {item.opportunity_id for item in latest.allocations}
+            if allocated_ids and allocated_ids <= online_ids:
+                return latest, False
 
         previous_id = latest.id if latest is not None else None
-        plan = PortfolioAllocator(self.engine).plan(policy.portfolio_budget())
+        plan = PortfolioAllocator(self.engine).plan(
+            policy.portfolio_budget(),
+            eligible_opportunity_ids=online_ids,
+        )
         if plan.allocations:
             ResourceEnvelopeManager(self.engine).activate(plan)
         return plan, previous_id != plan.id
 
-    def _has_online_candidates(self) -> bool:
-        return any(
-            opportunity.business_model is not None and "online_venture" in opportunity.tags
+    def _online_ids(self) -> set[UUID]:
+        return {
+            opportunity.id
             for opportunity in self.engine.store.list_opportunities()
+            if opportunity.business_model is not None and "online_venture" in opportunity.tags
+        }
+
+    def _online_revenue(self, currency: str) -> int:
+        estimator = VentureValueEstimator(self.engine)
+        return sum(
+            estimator.estimate(opportunity_id, currency).observed_revenue_cents
+            for opportunity_id in self._online_ids()
         )
 
     def _observation_count(self) -> int:
@@ -281,6 +312,7 @@ class AutonomousOnlineVentureOperator:
         rounds: list[SchedulerTickReport],
         stop_reason: AutopilotStopReason,
         blockers: list[str],
+        currency: str,
     ) -> AutopilotReport:
         return AutopilotReport(
             discovery=discovery,
@@ -291,4 +323,6 @@ class AutonomousOnlineVentureOperator:
             stop_reason=stop_reason,
             blockers=blockers,
             stage_counts=self._stage_counts(),
+            revenue_cents=self._online_revenue(currency),
+            currency=currency,
         )

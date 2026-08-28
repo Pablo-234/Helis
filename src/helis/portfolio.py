@@ -163,8 +163,20 @@ class PortfolioAllocator:
         self.gtm_decisions = GTMDecisionStore(engine)
         self.value = VentureValueEstimator(engine)
 
-    def plan(self, budget: PortfolioBudget) -> PortfolioPlan:
-        candidates = self._candidates(budget.currency)[: budget.max_ventures]
+    def plan(
+        self,
+        budget: PortfolioBudget,
+        *,
+        eligible_opportunity_ids: set[UUID] | None = None,
+    ) -> PortfolioPlan:
+        candidates = self._candidates(budget.currency)
+        if eligible_opportunity_ids is not None:
+            candidates = [
+                candidate
+                for candidate in candidates
+                if candidate.opportunity_id in eligible_opportunity_ids
+            ]
+        candidates = candidates[: budget.max_ventures]
         snapshot_hash = self._snapshot_hash(budget, candidates)
         existing = self.state.get_for_snapshot(snapshot_hash)
         if existing is not None:
