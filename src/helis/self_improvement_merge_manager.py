@@ -146,9 +146,11 @@ class SelfImprovementMergeManager:
 
     def approve(self, run_id: UUID) -> SelfImprovementMergeRun:
         run = self._require_run(run_id)
-        if run.status in {SelfImprovementMergeStatus.READY, SelfImprovementMergeStatus.MERGED}:
-            if run.approval_granted:
-                return run
+        if (
+            run.status in {SelfImprovementMergeStatus.READY, SelfImprovementMergeStatus.MERGED}
+            and run.approval_granted
+        ):
+            return run
         if run.status != SelfImprovementMergeStatus.WAITING_APPROVAL:
             raise SelfImprovementMergeError(f"cannot approve merge run from {run.status.value}")
         if run.ci_attestation is None or run.ci_attestation_hash is None:
