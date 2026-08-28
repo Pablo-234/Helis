@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
@@ -29,7 +30,7 @@ class GTMDecision(BaseModel):
     metrics: GTMMetrics
     snapshot_hash: str = Field(min_length=64, max_length=64)
     rationale: list[str] = Field(default_factory=list)
-    decided_at: object = Field(default_factory=utc_now)
+    decided_at: datetime = Field(default_factory=utc_now)
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +51,8 @@ class GTMDecisionPolicy:
             raise ValueError("pause sample must be >= scale sample")
         if self.min_resolved_for_kill < self.min_resolved_for_pause:
             raise ValueError("kill sample must be >= pause sample")
+        if self.scale_min_sales < 1 or self.pause_max_sale_count < 0:
+            raise ValueError("GTM sale thresholds are invalid")
         for value in (
             self.scale_min_positive_rate,
             self.scale_min_sale_rate,
@@ -260,6 +263,8 @@ class GTMDecisionEngine:
     def _apply_stage(self, decision: GTMDecision) -> None:
         opportunity = self.engine.store.get_opportunity(decision.opportunity_id)
         if opportunity is None:
+            return
+        if decision.decision == GTMDecisionKind.CONTINUE and decision.metrics.contacts == 0:
             return
         stage = {
             GTMDecisionKind.CONTINUE: VentureStage.MEASURING,
