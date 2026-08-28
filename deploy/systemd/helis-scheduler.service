@@ -1,0 +1,22 @@
+[Unit]
+Description=HELIS bounded autonomous scheduler wake
+Documentation=https://github.com/Pablo-234/Helis
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Helis
+EnvironmentFile=-%h/.config/helis/helis.env
+ExecStart=%h/Helis/.venv/bin/helis-scheduler wake --db %h/Helis/helis.db --workspace-root %h/Helis/.helis/workspaces --minimum-interval-seconds 900 --lease-seconds 600 --max-advances 2
+TimeoutStartSec=10min
+UMask=0077
+Nice=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/Helis
+
+[Install]
+WantedBy=default.target
