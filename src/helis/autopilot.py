@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from helis.budget import CycleBudget
 from helis.contact_gateway import ContactGateway
+from helis.contact_result_gateway import ContactResultGateway
 from helis.cycle import CycleReport, HelisCycle
 from helis.engine import HelisEngine
 from helis.model_provider import ModelProvider
@@ -131,6 +132,7 @@ class AutonomousOnlineVentureOperator:
         preview_gateway: PreviewGateway | None = None,
         prospect_gateway: ProspectGateway | None = None,
         contact_gateway: ContactGateway | None = None,
+        contact_result_gateway: ContactResultGateway | None = None,
     ) -> None:
         self.engine = engine
         self.provider = provider
@@ -140,6 +142,7 @@ class AutonomousOnlineVentureOperator:
         self.preview_gateway = preview_gateway
         self.prospect_gateway = prospect_gateway
         self.contact_gateway = contact_gateway
+        self.contact_result_gateway = contact_result_gateway
 
     def run(self, policy: AutopilotPolicy | None = None) -> AutopilotReport:
         selected = policy or AutopilotPolicy()
@@ -240,6 +243,7 @@ class AutonomousOnlineVentureOperator:
             preview_gateway=self.preview_gateway,
             prospect_gateway=self.prospect_gateway,
             contact_gateway=self.contact_gateway,
+            contact_result_gateway=self.contact_result_gateway,
         )
 
     def _publication_gates(self) -> list[str]:
