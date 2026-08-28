@@ -20,6 +20,9 @@ Score one opportunity using ONLY the evidence attached to it.
 Each dimension is 0-10. execution_risk is inverted semantically: 10 means very risky.
 Unknown facts are not permission to guess: lower evidence_strength and list the uncertainty.
 Be skeptical about willingness_to_pay, market_access and competition_gap unless evidence supports them.
+If a business_model is present, treat its pricing, margin, time-to-revenue, test cost, acquisition
+wedge and owner-effort fields as UNVALIDATED HYPOTHESES. They may inform what must be tested but
+must never increase evidence_strength or be cited as observed market facts.
 The arithmetic and final recommendation are computed outside you.
 Return JSON only:
 {"dimensions":{"pain":0,"frequency":0,"willingness_to_pay":0,"market_access":0,"automation_fit":0,"speed_to_test":0,"competition_gap":0,"evidence_strength":0,"capital_efficiency":0,"execution_risk":0},"rationale":[],"uncertainties":[]}.

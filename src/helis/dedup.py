@@ -49,18 +49,48 @@ def _observation_ids(opportunity: Opportunity) -> set[object]:
     }
 
 
+def _model_shape(opportunity: Opportunity) -> tuple[str, str] | None:
+    model = opportunity.business_model
+    if model is None:
+        return None
+    return model.revenue_model.value, model.delivery_model.value
+
+
+def _model_offer_tokens(opportunity: Opportunity) -> set[str]:
+    model = opportunity.business_model
+    if model is None:
+        return set()
+    return _tokens([model.offer, model.payer, model.value_proposition])
+
+
 def opportunity_similarity(left: Opportunity, right: Opportunity) -> float:
-    """Transparent lexical similarity; semantic embeddings can replace this adapter later."""
-    if _observation_ids(left) & _observation_ids(right):
+    """Transparent lexical similarity that preserves distinct monetization hypotheses."""
+
+    shared_observations = bool(_observation_ids(left) & _observation_ids(right))
+    left_shape = _model_shape(left)
+    right_shape = _model_shape(right)
+
+    if shared_observations and left_shape is None and right_shape is None:
         return 1.0
 
-    left_core = _tokens([left.title, left.problem, left.proposed_value])
-    right_core = _tokens([right.title, right.problem, right.proposed_value])
+    if left_shape is not None and right_shape is not None:
+        if left_shape != right_shape:
+            return 0.0 if shared_observations else 0.35
+        offer_similarity = _jaccard(_model_offer_tokens(left), _model_offer_tokens(right))
+        if shared_observations and offer_similarity >= 0.35:
+            return 1.0
+
+    left_core = _tokens([left.title, left.problem, left.proposed_value]) | _model_offer_tokens(left)
+    right_core = _tokens([right.title, right.problem, right.proposed_value]) | _model_offer_tokens(right)
     left_customer = _tokens([left.customer])
     right_customer = _tokens([right.customer])
     core = _jaccard(left_core, right_core)
     customer = _jaccard(left_customer, right_customer)
-    return round(core * 0.8 + customer * 0.2, 4)
+    score = round(core * 0.8 + customer * 0.2, 4)
+
+    if shared_observations and (left_shape is None) != (right_shape is None):
+        return min(score, 0.6)
+    return score
 
 
 def find_duplicate(

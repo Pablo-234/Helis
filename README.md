@@ -1,31 +1,31 @@
 # HELIS 🧬
 
-**HELIS is an autonomous venture engine.**
+**HELIS is an autonomous venture engine and venture factory.**
 
-Its job is not to wait for a business idea. It continuously discovers problems and market inefficiencies, turns them into testable venture hypotheses, validates them as cheaply as possible, builds only what evidence justifies, launches controlled go-to-market work, measures outcomes, reallocates scarce resources, and decides whether to **advance, continue, pivot, pause, scale, or kill**.
+Its job is not to wait for a business idea or become one hard-coded product. It continuously discovers problems and market inefficiencies, generates competing ways to monetize them, turns the strongest mechanisms into testable venture hypotheses, validates them as cheaply as possible, builds only what evidence justifies, launches controlled go-to-market work, measures outcomes, reallocates scarce resources, and decides whether to **advance, continue, pivot, pause, scale, or kill**.
 
-> HELIS does not wait for the owner to invent businesses. HELIS discovers them.
+> HELIS does not wait for the owner to invent businesses. HELIS discovers them — and it should eventually build the child agents needed to operate them.
 
 ## Core loop
 
 ```text
-OBSERVE → DISCOVER → HYPOTHESIZE → EVALUATE → FALSIFY
-                         ↓
-                  PLAN EXPERIMENT
-                         ↓
-                      EXECUTE
-                         ↓
-                      MEASURE
-                         ↓
-            ADVANCE / CONTINUE / PIVOT / KILL
-                         ↓
-                 BUILD if validated
-                         ↓
-                PREVIEW / LAUNCH
-                         ↓
-             GTM → RESPONSE → REVENUE
-                         ↓
-              PORTFOLIO REALLOCATION
+OBSERVE → DISCOVER PROBLEM → DIVERSIFY MONEY MODELS → EVALUATE → FALSIFY
+                                           ↓
+                                    PLAN EXPERIMENT
+                                           ↓
+                                        EXECUTE
+                                           ↓
+                                        MEASURE
+                                           ↓
+                              ADVANCE / CONTINUE / PIVOT / KILL
+                                           ↓
+                                   BUILD if validated
+                                           ↓
+                                  PREVIEW / LAUNCH
+                                           ↓
+                               GTM → RESPONSE → REVENUE
+                                           ↓
+                                PORTFOLIO REALLOCATION
 ```
 
 ## What works now
@@ -36,6 +36,11 @@ HELIS can:
 - periodically wake market discovery from cron/systemd with an independent due interval and crash-safe lease,
 - resume unprocessed discovery/evaluation work after crashes while making zero model calls on genuinely empty cycles,
 - generate venture candidates only when they reference supplied observations,
+- turn one evidence-backed problem into several structurally different money-making models in the **same bounded discovery call**,
+- represent who pays, what is sold, revenue model, delivery model, pricing hypothesis, acquisition wedge, fulfillment, automation roles, human roles, time-to-revenue, target owner effort and test cost explicitly,
+- rank those money models with deterministic pre-validation arithmetic rather than accepting a model-awarded score,
+- preserve different monetization strategies for the same pain as separate Opportunities while still merging true repeats,
+- keep generated pricing/margin/time/effort economics explicitly classified as hypotheses rather than evidence,
 - score candidates with deterministic, inspectable arithmetic,
 - challenge promising candidates with a skeptic pass,
 - design cheap falsification experiments,
@@ -199,7 +204,9 @@ Gateway destinations must use HTTPS. Plain HTTP is accepted only for explicit lo
 
 ## Decision safety
 
-The model can summarize evidence, propose tests, generate bounded artifacts, draft outreach and propose a tightly bounded control/variant commercial experiment. It does **not** own final venture transitions or authorization boundaries. Channel experiment planning does not require a model at all. Executable build commands and isolation policy are also fixed outside the model.
+The model can summarize evidence, propose economic mechanisms, propose tests, generate bounded artifacts, draft outreach and propose a tightly bounded control/variant commercial experiment. It does **not** own final venture transitions or authorization boundaries. Channel experiment planning does not require a model at all. Executable build commands and isolation policy are also fixed outside the model.
+
+Generated business-model economics are not evidence. The scout may hypothesize pricing, margins, time-to-revenue, acquisition paths and owner effort; the analyst and skeptic are explicitly instructed to treat them as claims that need validation. Initial model diversification is ranked by deterministic code and then exposed to the normal evidence/validation machinery.
 
 Validation decisions are deterministic outside the model. GTM decisions are derived from persisted outcomes and revenue rather than model preference. Commercial and channel experiment assignment, sample caps, outcome scoring and winner selection are deterministic outside the model. Portfolio allocation then uses measured signals and explicit economics to assign only remaining cash/model capacity.
 
@@ -220,13 +227,18 @@ Self-improvement is also split across independent trust boundaries: proposal →
 11. **Experiment inside existing authority** — A/B testing cannot expand contact volume or bypass approval gates.
 12. **Approve the destination, not just the message** — the exact public channel and endpoint are frozen before dispatch.
 13. **Execute generated code behind a fixed boundary** — the model writes bounded files, never runtime commands or sandbox policy.
+14. **A problem is not a product** — preserve competing economic mechanisms before deciding what system or child agents should be built.
+15. **HELIS is the factory, not the child bot** — product-specific agents belong to venture-owned artifacts, not hard-coded HELIS core.
 
 ## Current boundary
 
-HELIS now covers the constrained autonomous path from recurring market observation through discovery, validation, static/manual and one sandboxed dependency-free executable MVP form, bounded B2B GTM, bounded offer/pricing and acquisition-channel experimentation, measured revenue/economics, portfolio scheduling/reallocation and controlled self-improvement.
+HELIS now covers the constrained autonomous path from recurring market observation through **problem discovery and money-model diversification**, validation, static/manual and one sandboxed dependency-free executable MVP form, bounded B2B GTM, bounded offer/pricing and acquisition-channel experimentation, measured revenue/economics, portfolio scheduling/reallocation and controlled self-improvement.
+
+The next factory layer is intentionally separate: **Bot Architect → Agent Specification Language → Child Agent Factory**. A validated money model should eventually cause HELIS to derive the minimum venture-specific capability graph and build those child agents outside HELIS core rather than turning HELIS itself into a receptionist, sales bot, support bot or other single product.
 
 Still intentionally separate or incomplete:
 
+- Bot Architect / child-agent specification and orchestration,
 - native direct email/SMS/social transport implementations beyond the narrow operator-configured contact gateway,
 - general arbitrary executable-code builders, dependency installation and networked service sandboxes,
 - direct payment authority,

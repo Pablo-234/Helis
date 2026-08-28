@@ -131,3 +131,22 @@ Exit criterion: met for the bounded constrained venture path. HELIS can rank com
 - [x] merge is blocked if the review branch changes or the default branch advanced from the approved base
 
 Exit criterion: core path met. HELIS may propose and evaluate a bounded low-authority patch, materialize the exact accepted bytes to an explicitly approved review branch, require green CI, require a second merge approval, re-attest the exact branch immediately before merge, and merge only while the default branch still equals the approved base revision. No silent live self-rewrite, rebase, force-push or approval reuse is permitted.
+
+## Phase 6 — Autonomous venture factory
+
+- [x] one evidence-backed problem can produce multiple structurally different money-making models in the same bounded discovery call
+- [x] explicit payer / offer / revenue / delivery / pricing / acquisition / fulfillment hypotheses
+- [x] explicit automation-vs-human operating roles and target owner effort
+- [x] deterministic pre-validation economic-shape heuristic; model does not award its own score
+- [x] business-model-aware dedup keeps distinct monetization strategies separate while reinforcing true repeats
+- [x] downstream analyst/skeptic treat generated economics as hypotheses rather than evidence
+- [ ] Bot Architect: derive the minimum capability graph needed to operate a selected venture
+- [ ] Agent Specification Language: typed goals, inputs, tools, memory boundaries, constraints and success metrics
+- [ ] Child Agent Factory: build isolated venture-owned agents from approved specs rather than hard-coding product bots into HELIS
+- [ ] venture-level multi-agent orchestration with strict tenant/data/credential/resource isolation
+- [ ] bounded tool/connector factory for missing capabilities
+- [ ] autonomous venture packaging/deployment workflow behind explicit side-effect gates
+- [ ] child-agent performance lineage and bounded evolution from measured economic outcomes
+- [ ] portfolio allocator uses validated business-model economics and child-agent operating cost to compound capital
+
+Exit criterion: HELIS is a factory rather than a single product. It can discover a problem, preserve several competing economic mechanisms, validate one, derive the minimum system of capabilities/agents needed to operate it, build those child artifacts outside HELIS core, and measure the resulting business independently.
