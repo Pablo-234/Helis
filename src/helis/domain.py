@@ -64,6 +64,69 @@ class Evidence(BaseModel):
     observed_at: datetime = Field(default_factory=utc_now)
 
 
+class RevenueModel(StrEnum):
+    SUBSCRIPTION = "subscription"
+    RETAINER = "retainer"
+    FIXED_FEE = "fixed_fee"
+    USAGE = "usage"
+    TRANSACTION_FEE = "transaction_fee"
+    SUCCESS_FEE = "success_fee"
+    LEAD_FEE = "lead_fee"
+    LICENSING = "licensing"
+    MARKETPLACE_FEE = "marketplace_fee"
+    ADVERTISING = "advertising"
+    OTHER = "other"
+
+
+class DeliveryModel(StrEnum):
+    AI_AGENT_SERVICE = "ai_agent_service"
+    MANAGED_SERVICE = "managed_service"
+    SOFTWARE = "software"
+    AUTOMATION = "automation"
+    DATA_PRODUCT = "data_product"
+    MARKETPLACE = "marketplace"
+    CONTENT_MEDIA = "content_media"
+    PHYSICAL_OPS = "physical_ops"
+    HYBRID = "hybrid"
+    OTHER = "other"
+
+
+class PricingHypothesis(BaseModel):
+    currency: str = Field(default="USD", min_length=3, max_length=3, pattern=r"^[A-Z]{3}$")
+    low_cents: int = Field(ge=0, le=100_000_000)
+    high_cents: int = Field(ge=0, le=100_000_000)
+    unit: str = Field(min_length=2, max_length=120)
+
+    @field_validator("high_cents", mode="after")
+    @classmethod
+    def high_not_below_low(cls, value: int, info) -> int:
+        low = info.data.get("low_cents")
+        if low is not None and value < low:
+            raise ValueError("pricing high_cents must be greater than or equal to low_cents")
+        return value
+
+
+class BusinessModelHypothesis(BaseModel):
+    """A proposed economic mechanism. Its numeric fields are hypotheses, not evidence."""
+
+    name: str = Field(min_length=3, max_length=160)
+    payer: str = Field(min_length=2, max_length=240)
+    offer: str = Field(min_length=5, max_length=1200)
+    value_proposition: str = Field(min_length=5, max_length=1200)
+    revenue_model: RevenueModel
+    delivery_model: DeliveryModel
+    pricing: PricingHypothesis
+    acquisition_wedge: str = Field(min_length=5, max_length=1200)
+    fulfillment: str = Field(min_length=5, max_length=1600)
+    automation_roles: list[str] = Field(default_factory=list, max_length=8)
+    human_roles: list[str] = Field(default_factory=list, max_length=8)
+    time_to_first_revenue_days: int = Field(ge=1, le=365)
+    gross_margin_pct: float = Field(ge=0, le=100)
+    owner_minutes_per_week_at_scale: int = Field(ge=0, le=10_080)
+    test_cost_cents: int = Field(ge=0, le=100_000_000)
+    primary_risks: list[str] = Field(default_factory=list, max_length=6)
+
+
 class Opportunity(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     title: str = Field(min_length=3, max_length=200)
@@ -72,6 +135,9 @@ class Opportunity(BaseModel):
     proposed_value: str = Field(min_length=3)
     evidence: list[Evidence] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
+    source_problem_id: UUID | None = None
+    business_model: BusinessModelHypothesis | None = None
+    business_model_score: float | None = Field(default=None, ge=0, le=100)
     discovered_at: datetime = Field(default_factory=utc_now)
     stage: VentureStage = VentureStage.DISCOVERED
 
