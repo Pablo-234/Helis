@@ -24,6 +24,7 @@ dev = [
 helis = "helis.cli:app"
 helis-preview = "helis.preview_cli:app"
 helis-gtm = "helis.gtm_cli:app"
+helis-portfolio = "helis.portfolio_cli:app"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
