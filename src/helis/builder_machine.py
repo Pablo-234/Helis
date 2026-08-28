@@ -240,7 +240,11 @@ class BuilderMachine:
             opportunity = self.engine.store.get_opportunity(opportunity_id)
             if opportunity is None:
                 return None
-            if opportunity.stage not in {VentureStage.VALIDATED, VentureStage.BUILDING}:
+            if opportunity.stage not in {
+                VentureStage.VALIDATED,
+                VentureStage.BUILDING,
+                VentureStage.READY_PREVIEW,
+            }:
                 return None
             return opportunity
 

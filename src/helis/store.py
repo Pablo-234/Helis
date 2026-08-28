@@ -7,10 +7,15 @@ from uuid import UUID
 
 from helis.domain import (
     AuditEvent,
+    BuildCheck,
+    BuildReview,
+    BuildRun,
+    BuildSpec,
     Experiment,
     ExperimentRun,
     Observation,
     Opportunity,
+    PreviewManifest,
     Scorecard,
     SkepticReport,
     ValidationResult,
@@ -91,6 +96,53 @@ class HelisStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_venture_decisions_opportunity
                     ON venture_decisions(opportunity_id, decided_at);
+                CREATE TABLE IF NOT EXISTS build_specs (
+                    id TEXT PRIMARY KEY,
+                    opportunity_id TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_build_specs_opportunity
+                    ON build_specs(opportunity_id, created_at);
+                CREATE TABLE IF NOT EXISTS build_runs (
+                    id TEXT PRIMARY KEY,
+                    spec_id TEXT NOT NULL,
+                    opportunity_id TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_build_runs_spec
+                    ON build_runs(spec_id, updated_at);
+                CREATE INDEX IF NOT EXISTS idx_build_runs_opportunity
+                    ON build_runs(opportunity_id, updated_at);
+                CREATE TABLE IF NOT EXISTS build_checks (
+                    id TEXT PRIMARY KEY,
+                    run_id TEXT NOT NULL,
+                    passed INTEGER NOT NULL,
+                    payload TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_build_checks_run
+                    ON build_checks(run_id, created_at);
+                CREATE TABLE IF NOT EXISTS build_reviews (
+                    id TEXT PRIMARY KEY,
+                    run_id TEXT NOT NULL,
+                    verdict TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_build_reviews_run
+                    ON build_reviews(run_id, created_at);
+                CREATE TABLE IF NOT EXISTS preview_manifests (
+                    id TEXT PRIMARY KEY,
+                    run_id TEXT UNIQUE NOT NULL,
+                    opportunity_id TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_preview_opportunity
+                    ON preview_manifests(opportunity_id, created_at);
                 CREATE TABLE IF NOT EXISTS events (
                     seq INTEGER PRIMARY KEY AUTOINCREMENT,
                     id TEXT UNIQUE NOT NULL,
@@ -339,6 +391,141 @@ class HelisStore:
                     (str(opportunity_id),),
                 ).fetchall()
         return [VentureDecision.model_validate_json(row["payload"]) for row in rows]
+
+    def save_build_spec(self, spec: BuildSpec) -> None:
+        with self.connect() as db:
+            db.execute(
+                "INSERT OR REPLACE INTO build_specs (id, opportunity_id, payload, created_at) "
+                "VALUES (?, ?, ?, ?)",
+                (
+                    str(spec.id),
+                    str(spec.opportunity_id),
+                    spec.model_dump_json(),
+                    spec.created_at.isoformat(),
+                ),
+            )
+
+    def get_build_spec_for_opportunity(self, opportunity_id: UUID) -> BuildSpec | None:
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT payload FROM build_specs WHERE opportunity_id = ? "
+                "ORDER BY created_at DESC LIMIT 1",
+                (str(opportunity_id),),
+            ).fetchone()
+        return BuildSpec.model_validate_json(row["payload"]) if row else None
+
+    def save_build_run(self, run: BuildRun) -> None:
+        with self.connect() as db:
+            db.execute(
+                "INSERT OR REPLACE INTO build_runs "
+                "(id, spec_id, opportunity_id, status, payload, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    str(run.id),
+                    str(run.spec_id),
+                    str(run.opportunity_id),
+                    run.status.value,
+                    run.model_dump_json(),
+                    run.updated_at.isoformat(),
+                ),
+            )
+
+    def get_build_run(self, run_id: UUID) -> BuildRun | None:
+        with self.connect() as db:
+            row = db.execute("SELECT payload FROM build_runs WHERE id = ?", (str(run_id),)).fetchone()
+        return BuildRun.model_validate_json(row["payload"]) if row else None
+
+    def list_build_runs(
+        self,
+        *,
+        spec_id: UUID | None = None,
+        opportunity_id: UUID | None = None,
+    ) -> list[BuildRun]:
+        clauses: list[str] = []
+        params: list[str] = []
+        if spec_id is not None:
+            clauses.append("spec_id = ?")
+            params.append(str(spec_id))
+        if opportunity_id is not None:
+            clauses.append("opportunity_id = ?")
+            params.append(str(opportunity_id))
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        query = "SELECT payload FROM build_runs" + where + " ORDER BY updated_at DESC"
+        with self.connect() as db:
+            rows = db.execute(query, params).fetchall()
+        return [BuildRun.model_validate_json(row["payload"]) for row in rows]
+
+    def save_build_check(self, check: BuildCheck) -> None:
+        if check.run_id is None:
+            raise ValueError("build check requires run_id before persistence")
+        with self.connect() as db:
+            db.execute(
+                "INSERT OR REPLACE INTO build_checks (id, run_id, passed, payload, created_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (
+                    str(check.id),
+                    str(check.run_id),
+                    int(check.passed),
+                    check.model_dump_json(),
+                    check.created_at.isoformat(),
+                ),
+            )
+
+    def list_build_checks(self, run_id: UUID) -> list[BuildCheck]:
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT payload FROM build_checks WHERE run_id = ? ORDER BY created_at ASC",
+                (str(run_id),),
+            ).fetchall()
+        return [BuildCheck.model_validate_json(row["payload"]) for row in rows]
+
+    def save_build_review(self, review: BuildReview) -> None:
+        with self.connect() as db:
+            db.execute(
+                "INSERT OR REPLACE INTO build_reviews (id, run_id, verdict, payload, created_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (
+                    str(review.id),
+                    str(review.run_id),
+                    review.verdict.value,
+                    review.model_dump_json(),
+                    review.created_at.isoformat(),
+                ),
+            )
+
+    def get_build_review(self, run_id: UUID) -> BuildReview | None:
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT payload FROM build_reviews WHERE run_id = ? ORDER BY created_at DESC LIMIT 1",
+                (str(run_id),),
+            ).fetchone()
+        return BuildReview.model_validate_json(row["payload"]) if row else None
+
+    def save_preview_manifest(self, preview: PreviewManifest) -> None:
+        with self.connect() as db:
+            db.execute(
+                "INSERT OR REPLACE INTO preview_manifests "
+                "(id, run_id, opportunity_id, payload, created_at) VALUES (?, ?, ?, ?, ?)",
+                (
+                    str(preview.id),
+                    str(preview.run_id),
+                    str(preview.opportunity_id),
+                    preview.model_dump_json(),
+                    preview.created_at.isoformat(),
+                ),
+            )
+
+    def get_preview_manifest_for_opportunity(
+        self,
+        opportunity_id: UUID,
+    ) -> PreviewManifest | None:
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT payload FROM preview_manifests WHERE opportunity_id = ? "
+                "ORDER BY created_at DESC LIMIT 1",
+                (str(opportunity_id),),
+            ).fetchone()
+        return PreviewManifest.model_validate_json(row["payload"]) if row else None
 
     def list_events(self, limit: int = 100) -> list[AuditEvent]:
         with self.connect() as db:

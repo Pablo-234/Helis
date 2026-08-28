@@ -43,20 +43,23 @@ Exit criterion: met for an operator-triggered cycle. Scheduled waking remains an
 
 Exit criterion: met at the transport layer when an approved validation gateway is configured. HELIS can execute a real external validation action without granting blanket contact permission, persist the asynchronous run, ingest the result and decide what to do next. Native channel adapters remain optional refinements.
 
-## Phase 2 — Builder (next)
+## Phase 2 — Builder (current)
 
-- [ ] isolated per-venture workspaces
-- [ ] build manifest / bounded product brief
-- [ ] builder adapter interface
-- [ ] generated-code sandbox
-- [ ] test-before-preview requirement
-- [ ] preview deployments
-- [ ] reusable venture templates
-- [ ] self-review + adversarial review
-- [ ] builder budget and stop conditions
-- [ ] explicit promotion from `validated` → `building`
+- [x] isolated per-venture/per-run workspaces
+- [x] build manifest / bounded product brief
+- [x] constrained planner + generator interfaces
+- [x] generated-artifact sandbox with path containment
+- [x] deterministic test-before-preview requirement
+- [x] preview manifest with content hash
+- [ ] actual preview deployment adapter
+- [x] reusable `static_web_v1` and `concierge_ops_v1` templates
+- [x] adversarial model review after deterministic checks
+- [x] shared model budget + per-build file/byte stop conditions
+- [x] explicit promotion from `validated` → `building` → `ready_preview`
+- [ ] bounded automatic repair loop for rejected builds
+- [ ] executable-code sandbox backend with network/resource isolation
 
-Exit criterion: a validated venture can become a constrained, tested preview MVP without modifying the HELIS core or silently deploying to production.
+Exit criterion: partially met. A validated venture can become a constrained, tested local preview artifact without modifying HELIS core. Actual preview publication and bounded repair are the next slices.
 
 ## Phase 3 — Go-to-market
 

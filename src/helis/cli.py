@@ -9,6 +9,7 @@ from rich.console import Console
 from rich.table import Table
 
 from helis.budget import CycleBudget
+from helis.builder_machine import BuilderMachine, BuildTickReport
 from helis.cycle import CycleReport, HelisCycle
 from helis.domain import Observation, Opportunity, ScoreDimensions, ValidationResult
 from helis.engine import HelisEngine
@@ -122,6 +123,40 @@ def _print_validation_tick(report: ValidationTickReport) -> None:
             f"[cyan]follow-up planned[/] {report.follow_up_planned.experiment_type.value}: "
             f"{report.follow_up_planned.title}"
         )
+
+
+def _print_build_tick(report: BuildTickReport) -> None:
+    if report.opportunity_id is None:
+        console.print("builder: no validated venture is waiting for a build")
+        return
+    console.print(
+        f"builder: venture={report.opportunity_id} "
+        f"model_budget_exhausted={report.model_budget_exhausted}"
+    )
+    if report.spec is not None:
+        console.print(
+            f"spec={report.spec.id} template={report.spec.template.value} "
+            f"files≤{report.spec.max_files} bytes≤{report.spec.max_total_bytes}"
+        )
+    if report.run is not None:
+        console.print(
+            f"build-run={report.run.id} status={report.run.status.value} "
+            f"workspace={report.run.workspace or '-'}"
+        )
+    if report.checks:
+        passed = sum(check.passed for check in report.checks)
+        console.print(f"deterministic checks: {passed}/{len(report.checks)} passed")
+    if report.review is not None:
+        console.print(
+            f"adversarial review={report.review.verdict.value} score={report.review.score:.1f}/10"
+        )
+    if report.preview is not None:
+        console.print(
+            f"[bold green]preview ready[/] entrypoint={report.preview.entrypoint} "
+            f"hash={report.preview.artifact_hash[:12]}…"
+        )
+    if report.blocked_reason:
+        console.print(f"[yellow]builder blocked[/] {report.blocked_reason}")
 
 
 @app.command()
@@ -244,6 +279,32 @@ def validate(
     )
 
 
+@app.command()
+def build(
+    db: Path = Path("helis.db"),
+    opportunity_id: str | None = None,
+    workspace_root: Path = Path(".helis/workspaces"),
+    max_calls: int = 3,
+    max_tokens: int = 45_000,
+    max_cost_cents: float = 15.0,
+) -> None:
+    """Turn one validated venture into a constrained local preview artifact."""
+    helis = engine(db)
+    provider = OpenAICompatibleProvider.from_env()
+    budget = configured_budget(max_calls, max_tokens, max_cost_cents)
+    report = BuilderMachine(
+        helis,
+        provider,
+        budget,
+        workspace_root=workspace_root,
+    ).tick(UUID(opportunity_id) if opportunity_id else None)
+    _print_build_tick(report)
+    console.print(
+        f"builder usage: calls={budget.model_calls}/{budget.max_model_calls} "
+        f"tokens={budget.tokens}/{budget.max_tokens} cost≈{budget.cost_cents:.3f}¢"
+    )
+
+
 @app.command("approve-run")
 def approve_run(run_id: str, db: Path = Path("helis.db")) -> None:
     """Grant one-time approval to one specific waiting experiment run."""
@@ -268,7 +329,6 @@ def record_result(
         f"recorded result {result.id}: {result.outcome.value} confidence={result.confidence:.2f}; "
         f"run={completed.id} completed"
     )
-
     provider = OpenAICompatibleProvider.from_env()
     budget = configured_budget(max_calls, max_tokens, max_cost_cents)
     report = ValidationMachine(
@@ -294,13 +354,14 @@ def gateway_status() -> None:
 def run(
     config: Path = Path("helis.toml"),
     db: Path = Path("helis.db"),
+    workspace_root: Path = Path(".helis/workspaces"),
     observation_limit: int = 100,
     candidate_limit: int = 5,
-    max_calls: int = 10,
-    max_tokens: int = 60_000,
+    max_calls: int = 14,
+    max_tokens: int = 90_000,
     max_cost_cents: float = 25.0,
 ) -> None:
-    """Scan markets, discover/evaluate ventures, then execute one safe validation step."""
+    """Scan, reason, validate, then build one validated venture when budget permits."""
     helis = engine(db)
     scan_result = SourceRegistry.from_toml(config).scan()
     _save_observations(helis, scan_result.observations)
@@ -322,6 +383,14 @@ def run(
         external_gateway=configured_gateway(),
     ).tick(report.validation_opportunity_id)
     _print_validation_tick(validation_report)
+
+    build_report = BuilderMachine(
+        helis,
+        provider,
+        budget,
+        workspace_root=workspace_root,
+    ).tick()
+    _print_build_tick(build_report)
     console.print(
         f"total usage: calls={budget.model_calls}/{budget.max_model_calls} "
         f"tokens={budget.tokens}/{budget.max_tokens} cost≈{budget.cost_cents:.3f}¢"

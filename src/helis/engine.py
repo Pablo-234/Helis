@@ -5,10 +5,15 @@ from dataclasses import dataclass
 from helis.dedup import find_duplicate, merge_opportunities
 from helis.domain import (
     AuditEvent,
+    BuildCheck,
+    BuildReview,
+    BuildRun,
+    BuildSpec,
     Experiment,
     ExperimentRun,
     Observation,
     Opportunity,
+    PreviewManifest,
     Recommendation,
     Scorecard,
     ScoreDimensions,
@@ -82,14 +87,12 @@ class HelisEngine:
     def evaluate(self, opportunity: Opportunity, dimensions: ScoreDimensions) -> Scorecard:
         scorecard = score_opportunity(opportunity, dimensions)
         self.store.save_scorecard(scorecard)
-
         stage = (
             VentureStage.KILLED
             if scorecard.recommendation == Recommendation.KILL
             else VentureStage.EVALUATED
         )
-        evaluated = opportunity.model_copy(update={"stage": stage})
-        self.store.save_opportunity(evaluated)
+        self.store.save_opportunity(opportunity.model_copy(update={"stage": stage}))
         self.store.append_event(
             AuditEvent(
                 event_type="opportunity.evaluated",
@@ -120,8 +123,9 @@ class HelisEngine:
         self.store.save_experiment(experiment)
         opportunity = self.store.get_opportunity(experiment.opportunity_id)
         if opportunity is not None:
-            validating = opportunity.model_copy(update={"stage": VentureStage.VALIDATING})
-            self.store.save_opportunity(validating)
+            self.store.save_opportunity(
+                opportunity.model_copy(update={"stage": VentureStage.VALIDATING})
+            )
         self.store.append_event(
             AuditEvent(
                 event_type="experiment.planned",
@@ -189,6 +193,85 @@ class HelisEngine:
                     "confidence": decision.confidence,
                     "stage": stage.value,
                     "suggested_pivot": decision.suggested_pivot,
+                },
+            )
+        )
+
+    def record_build_spec(self, spec: BuildSpec) -> None:
+        self.store.save_build_spec(spec)
+        opportunity = self.store.get_opportunity(spec.opportunity_id)
+        if opportunity is not None:
+            self.store.save_opportunity(
+                opportunity.model_copy(update={"stage": VentureStage.BUILDING})
+            )
+        self.store.append_event(
+            AuditEvent(
+                event_type="build.spec_planned",
+                entity_id=spec.id,
+                data={
+                    "opportunity_id": str(spec.opportunity_id),
+                    "template": spec.template.value,
+                    "max_files": spec.max_files,
+                    "max_total_bytes": spec.max_total_bytes,
+                },
+            )
+        )
+
+    def record_build_run(self, run: BuildRun, *, event_type: str) -> None:
+        self.store.save_build_run(run)
+        self.store.append_event(
+            AuditEvent(
+                event_type=event_type,
+                entity_id=run.id,
+                data={
+                    "spec_id": str(run.spec_id),
+                    "opportunity_id": str(run.opportunity_id),
+                    "status": run.status.value,
+                    "workspace": run.workspace,
+                    "error": run.error,
+                },
+            )
+        )
+
+    def record_build_check(self, check: BuildCheck) -> None:
+        self.store.save_build_check(check)
+        self.store.append_event(
+            AuditEvent(
+                event_type="build.check",
+                entity_id=check.run_id,
+                data={"name": check.name, "passed": check.passed, "details": check.details},
+            )
+        )
+
+    def record_build_review(self, review: BuildReview) -> None:
+        self.store.save_build_review(review)
+        self.store.append_event(
+            AuditEvent(
+                event_type="build.review",
+                entity_id=review.run_id,
+                data={
+                    "verdict": review.verdict.value,
+                    "score": review.score,
+                    "blocking_issues": review.blocking_issues,
+                },
+            )
+        )
+
+    def record_preview_manifest(self, preview: PreviewManifest) -> None:
+        self.store.save_preview_manifest(preview)
+        opportunity = self.store.get_opportunity(preview.opportunity_id)
+        if opportunity is not None:
+            self.store.save_opportunity(
+                opportunity.model_copy(update={"stage": VentureStage.READY_PREVIEW})
+            )
+        self.store.append_event(
+            AuditEvent(
+                event_type="build.preview_ready",
+                entity_id=preview.run_id,
+                data={
+                    "opportunity_id": str(preview.opportunity_id),
+                    "entrypoint": preview.entrypoint,
+                    "artifact_hash": preview.artifact_hash,
                 },
             )
         )
