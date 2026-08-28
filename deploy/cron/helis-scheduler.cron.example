@@ -1,0 +1,4 @@
+# Invoke every five minutes; HELIS itself enforces the 15-minute minimum wake interval
+# plus its scheduler lease, so overlapping/too-frequent host invocations are safe.
+# The env file is explicitly sourced because cron does not understand systemd EnvironmentFile=.
+*/5 * * * * set -a; . "$HOME/.config/helis/helis.env"; set +a; cd "$HOME/Helis" && mkdir -p "$HOME/Helis/.helis" && "$HOME/Helis/.venv/bin/helis-scheduler" wake --db "$HOME/Helis/helis.db" --workspace-root "$HOME/Helis/.helis/workspaces" --minimum-interval-seconds 900 --lease-seconds 600 --max-advances 2 >> "$HOME/Helis/.helis/scheduler.log" 2>&1
