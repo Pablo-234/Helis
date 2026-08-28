@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from uuid import UUID
 
 import typer
 from rich.console import Console
@@ -8,6 +9,7 @@ from rich.table import Table
 
 from helis.engine import HelisEngine
 from helis.portfolio import PortfolioAllocator, PortfolioBudget, PortfolioStore
+from helis.portfolio_value import VentureCostEvent, VentureValueEstimator
 from helis.store import HelisStore
 
 app = typer.Typer(help="HELIS portfolio and capital allocation planning")
@@ -19,24 +21,26 @@ def _engine(db: Path) -> HelisEngine:
 
 
 def _print_plan(plan) -> None:
-    table = Table("Stage", "Priority", "Cash", "Model calls", "Venture")
+    table = Table("Stage", "Priority", "Expected net/contact", "Cash", "Calls", "Venture")
     candidates = {item.opportunity_id: item for item in plan.candidates}
     for allocation in plan.allocations:
         candidate = candidates[allocation.opportunity_id]
+        estimate = candidate.value_estimate
         table.add_row(
             candidate.stage.value,
             f"{allocation.priority_score:.2f}",
-            str(allocation.cash_cents),
+            f"{estimate.expected_net_per_next_resolved_contact_cents:.1f}¢",
+            f"{allocation.cash_cents} {plan.budget.currency}¢",
             str(allocation.model_calls),
             str(allocation.opportunity_id),
         )
     console.print(table)
     console.print(
-        f"allocated: cash={plan.allocated_cash_cents}/{plan.budget.cash_cents}¢ "
-        f"model_calls={plan.allocated_model_calls}/{plan.budget.model_calls}"
+        f"allocated: cash={plan.allocated_cash_cents}/{plan.budget.cash_cents} "
+        f"{plan.budget.currency}¢ model_calls={plan.allocated_model_calls}/{plan.budget.model_calls}"
     )
     console.print(
-        f"[bold]reserve:[/] cash={plan.reserved_cash_cents}¢ "
+        f"[bold]reserve:[/] cash={plan.reserved_cash_cents} {plan.budget.currency}¢ "
         f"model_calls={plan.reserved_model_calls} "
         f"snapshot={plan.snapshot_hash[:12]}…"
     )
@@ -45,6 +49,7 @@ def _print_plan(plan) -> None:
 @app.command()
 def plan(
     cash_cents: int = typer.Option(0, min=0),
+    currency: str = typer.Option("PLN"),
     model_calls: int = typer.Option(0, min=0),
     reserve_fraction: float = typer.Option(0.20, min=0, max=0.90),
     max_ventures: int = typer.Option(4, min=1, max=50),
@@ -55,6 +60,7 @@ def plan(
     portfolio = PortfolioAllocator(_engine(db)).plan(
         PortfolioBudget(
             cash_cents=cash_cents,
+            currency=currency,
             model_calls=model_calls,
             reserve_fraction=reserve_fraction,
             max_ventures=max_ventures,
@@ -62,6 +68,55 @@ def plan(
         )
     )
     _print_plan(portfolio)
+
+
+@app.command("record-cost")
+def record_cost(
+    opportunity_id: str,
+    amount_cents: int = typer.Option(..., min=1),
+    currency: str = typer.Option("PLN"),
+    source: str = typer.Option(...),
+    external_ref: str | None = typer.Option(None),
+    db: Path = Path("helis.db"),
+) -> None:
+    """Record an actual venture cash cost. Repeated source+external-ref pairs are idempotent."""
+    helis = _engine(db)
+    saved = VentureValueEstimator(helis).record_cost(
+        VentureCostEvent(
+            opportunity_id=UUID(opportunity_id),
+            amount_cents=amount_cents,
+            currency=currency,
+            source=source,
+            external_ref=external_ref,
+        )
+    )
+    console.print(
+        f"cost={saved.amount_cents} {saved.currency}¢ venture={saved.opportunity_id} "
+        f"source={saved.source} id={saved.id}"
+    )
+
+
+@app.command("economics")
+def economics(
+    opportunity_id: str,
+    currency: str = typer.Option("PLN"),
+    db: Path = Path("helis.db"),
+) -> None:
+    """Show the current currency-specific economics estimate for one venture."""
+    estimate = VentureValueEstimator(_engine(db)).estimate(UUID(opportunity_id), currency)
+    console.print(
+        f"venture={estimate.opportunity_id} currency={estimate.currency} "
+        f"resolved={estimate.resolved_outcomes} paid_sales={estimate.paid_sales}"
+    )
+    console.print(
+        f"revenue={estimate.observed_revenue_cents}¢ cost={estimate.observed_cost_cents}¢ "
+        f"net={estimate.realized_net_cents}¢"
+    )
+    console.print(
+        f"P(paid sale)≈{estimate.posterior_paid_sale_probability:.1%} "
+        f"expected_net/next_resolved≈{estimate.expected_net_per_next_resolved_contact_cents:.1f}¢ "
+        f"confidence={estimate.evidence_confidence:.1%} uncertainty={estimate.uncertainty:.1%}"
+    )
 
 
 @app.command()
