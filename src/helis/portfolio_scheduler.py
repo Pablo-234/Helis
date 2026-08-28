@@ -10,10 +10,13 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, Field
 
 from helis.cash_reservation import CashReservationManager, CashReservationStatus
+from helis.contact_gateway import ContactGateway
 from helis.domain import AuditEvent, ExperimentRunStatus, VentureStage, utc_now
 from helis.engine import HelisEngine
+from helis.gtm_lifecycle import ACTIVE_GTM_STAGES, gtm_is_active
 from helis.model_provider import ModelProvider
 from helis.portfolio import PortfolioStore
+from helis.prospect_gateway import ProspectGateway
 from helis.resource_envelope import EnvelopeStatus, ResourceEnvelope, ResourceEnvelopeManager
 from helis.validation_gateway import ApprovedValidationGateway
 from helis.venture_runtime import VentureRuntime
@@ -21,6 +24,7 @@ from helis.venture_runtime import VentureRuntime
 
 class SchedulerDisposition(StrEnum):
     ADVANCED = "advanced"
+    NOOP = "noop"
     SKIPPED = "skipped"
     FAILED = "failed"
 
@@ -48,6 +52,10 @@ class SchedulerTickReport(BaseModel):
     @property
     def advanced(self) -> int:
         return sum(item.disposition == SchedulerDisposition.ADVANCED for item in self.items)
+
+    @property
+    def noop(self) -> int:
+        return sum(item.disposition == SchedulerDisposition.NOOP for item in self.items)
 
     @property
     def skipped(self) -> int:
@@ -116,7 +124,7 @@ class PortfolioScheduler:
             VentureStage.VALIDATED,
             VentureStage.BUILDING,
         }
-    )
+    ) | ACTIVE_GTM_STAGES
     _BLOCKING_VALIDATION_STATUSES = frozenset(
         {
             ExperimentRunStatus.WAITING_APPROVAL,
@@ -132,12 +140,16 @@ class PortfolioScheduler:
         *,
         workspace_root: str | Path = ".helis/workspaces",
         validation_gateway: ApprovedValidationGateway | None = None,
+        prospect_gateway: ProspectGateway | None = None,
+        contact_gateway: ContactGateway | None = None,
         runtime_factory: RuntimeFactory | None = None,
     ) -> None:
         self.engine = engine
         self.provider = provider
         self.workspace_root = Path(workspace_root)
         self.validation_gateway = validation_gateway
+        self.prospect_gateway = prospect_gateway
+        self.contact_gateway = contact_gateway
         self.envelopes = ResourceEnvelopeManager(engine)
         self.cash = CashReservationManager(engine)
         self.portfolio = PortfolioStore(engine)
@@ -196,7 +208,7 @@ class PortfolioScheduler:
 
             attempts += 1
             try:
-                self.runtime_factory(envelope.id).advance(
+                result = self.runtime_factory(envelope.id).advance(
                     validation_cash_cents=float(cash_before),
                 )
             except Exception as exc:  # noqa: BLE001 -- isolate one venture from the portfolio loop
@@ -213,13 +225,21 @@ class PortfolioScheduler:
 
             refreshed = self.envelopes.get(envelope.id) or envelope
             cash_after = self.cash.available_cash(envelope.id)
+            did_work = bool(getattr(result, "did_work", True))
+            gtm = getattr(result, "gtm", None)
             items.append(
                 SchedulerItem(
                     envelope_id=envelope.id,
                     opportunity_id=envelope.opportunity_id,
                     priority_score=priority,
-                    disposition=SchedulerDisposition.ADVANCED,
-                    reason="venture_runtime_advanced",
+                    disposition=(
+                        SchedulerDisposition.ADVANCED if did_work else SchedulerDisposition.NOOP
+                    ),
+                    reason=(
+                        "venture_runtime_advanced"
+                        if did_work
+                        else getattr(gtm, "reason", "venture_runtime_noop")
+                    ),
                     model_calls_before=envelope.model_calls_consumed,
                     model_calls_after=refreshed.model_calls_consumed,
                     available_cash_before=cash_before,
@@ -249,16 +269,16 @@ class PortfolioScheduler:
         if any(item.status == CashReservationStatus.RESERVED for item in reservations):
             return "open_cash_commitment"
 
-        runs = self.engine.store.list_experiment_runs(opportunity_id=opportunity.id)
-        blocking = next(
-            (run for run in runs if run.status in self._BLOCKING_VALIDATION_STATUSES),
-            None,
-        )
-        if blocking is not None:
-            return f"validation_{blocking.status.value}"
-
-        if envelope.remaining_model_calls <= 0:
-            return "no_model_capacity"
+        if not gtm_is_active(opportunity.stage):
+            runs = self.engine.store.list_experiment_runs(opportunity_id=opportunity.id)
+            blocking = next(
+                (run for run in runs if run.status in self._BLOCKING_VALIDATION_STATUSES),
+                None,
+            )
+            if blocking is not None:
+                return f"validation_{blocking.status.value}"
+            if envelope.remaining_model_calls <= 0:
+                return "no_model_capacity"
         return None
 
     def _item(
@@ -289,6 +309,8 @@ class PortfolioScheduler:
             envelope_id,
             workspace_root=self.workspace_root,
             validation_gateway=self.validation_gateway,
+            prospect_gateway=self.prospect_gateway,
+            contact_gateway=self.contact_gateway,
         )
 
     def _save(self, report: SchedulerTickReport) -> None:
@@ -302,6 +324,7 @@ class PortfolioScheduler:
                     "max_advances": report.max_advances,
                     "attempted_advances": report.attempted_advances,
                     "advanced": report.advanced,
+                    "noop": report.noop,
                     "skipped": report.skipped,
                     "failed": report.failed,
                     "items": [

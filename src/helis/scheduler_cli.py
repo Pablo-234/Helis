@@ -6,10 +6,12 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from helis.contact_gateway import ApprovedContactGateway
 from helis.engine import HelisEngine
 from helis.model_provider import OpenAICompatibleProvider
 from helis.portfolio_reallocation import ReallocatingPortfolioControlLoop
 from helis.portfolio_scheduler import PortfolioScheduler, SchedulerStore, SchedulerTickReport
+from helis.prospect_gateway import ApprovedProspectGateway
 from helis.scheduler_wake import SchedulerWakeController, SchedulerWakeStore, WakePolicy
 from helis.store import HelisStore
 from helis.validation_gateway import ApprovedValidationGateway
@@ -29,6 +31,8 @@ def _control_loop(helis: HelisEngine, workspace_root: Path) -> ReallocatingPortf
         provider,
         workspace_root=workspace_root,
         validation_gateway=ApprovedValidationGateway.from_env(),
+        prospect_gateway=ApprovedProspectGateway.from_env(),
+        contact_gateway=ApprovedContactGateway.from_env(),
     )
     return ReallocatingPortfolioControlLoop(helis, scheduler)
 
@@ -48,7 +52,8 @@ def _print_report(report: SchedulerTickReport) -> None:
     console.print(
         f"scheduler tick={report.id} plan={report.plan_id or '-'} "
         f"attempted={report.attempted_advances}/{report.max_advances} "
-        f"advanced={report.advanced} skipped={report.skipped} failed={report.failed}"
+        f"advanced={report.advanced} noop={report.noop} "
+        f"skipped={report.skipped} failed={report.failed}"
     )
 
 
