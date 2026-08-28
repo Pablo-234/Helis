@@ -115,11 +115,17 @@ def _python_import_violations(trees: dict[str, ast.Module]) -> list[str]:
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     root = alias.name.split(".", 1)[0]
-                    if root not in _PYTHON_ALLOWED_IMPORTS:
+                    if root not in _PYTHON_ALLOWED_IMPORTS or (
+                        path == "app.py" and root == "app"
+                    ):
                         violations.append(f"{path}:import {alias.name}")
             elif isinstance(node, ast.ImportFrom):
                 root = (node.module or "").split(".", 1)[0]
-                if node.level or root not in _PYTHON_ALLOWED_IMPORTS:
+                if (
+                    node.level
+                    or root not in _PYTHON_ALLOWED_IMPORTS
+                    or (path == "app.py" and root == "app")
+                ):
                     violations.append(f"{path}:from {node.module or '.'}")
     return violations
 
@@ -149,6 +155,10 @@ def _literal_assignment(node: ast.Assign | ast.AnnAssign) -> bool:
     return True
 
 
+def _annotation_safe(annotation: ast.expr | None) -> bool:
+    return annotation is None or isinstance(annotation, ast.Name)
+
+
 def _function_definition_safe(node: ast.FunctionDef) -> bool:
     if node.decorator_list:
         return False
@@ -161,7 +171,15 @@ def _function_definition_safe(node: ast.FunctionDef) -> bool:
             ast.literal_eval(default)
         except (ValueError, TypeError):
             return False
-    return True
+    annotations = [
+        *(item.annotation for item in node.args.posonlyargs),
+        *(item.annotation for item in node.args.args),
+        *(item.annotation for item in node.args.kwonlyargs),
+        node.args.vararg.annotation if node.args.vararg else None,
+        node.args.kwarg.annotation if node.args.kwarg else None,
+        node.returns,
+    ]
+    return all(_annotation_safe(annotation) for annotation in annotations)
 
 
 def _python_top_level_safe(tree: ast.Module | None) -> bool:
@@ -355,8 +373,8 @@ class BuildVerifier:
                         "python_no_top_level_side_effects",
                         _python_top_level_safe(trees.get("app.py")),
                         (
-                            "app.py top level may contain only imports, undecorated "
-                            "functions and literal constants"
+                            "app.py top level may contain only imports, safe function "
+                            "definitions and literal constants"
                         ),
                     ),
                     _check(
