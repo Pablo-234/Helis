@@ -9,6 +9,8 @@ from helis.bot_architect import ArchitecturePlanReport, BotArchitect
 from helis.builder_machine import BuilderMachine, BuildTickReport
 from helis.cash_reservation import CashReservationManager
 from helis.child_agent_factory import ChildAgentFactory, ChildAgentFactoryReport
+from helis.commerce_gateway import CommerceGateway
+from helis.commerce_manager import CommerceManager, CommerceTickReport
 from helis.contact_gateway import ContactGateway
 from helis.contact_result_gateway import ContactResultGateway
 from helis.domain import VentureStage
@@ -52,6 +54,7 @@ class VentureRuntimeReport:
     architecture: ArchitecturePlanReport | None = None
     agent_specs: AgentSpecPlanReport | None = None
     agents: ChildAgentFactoryReport | None = None
+    commerce: CommerceTickReport | None = None
     build: BuildTickReport | None = None
     publication: PublicationTickReport | None = None
     gtm: GTMTickReport | None = None
@@ -59,9 +62,11 @@ class VentureRuntimeReport:
     @property
     def did_work(self) -> bool:
         if self.gtm is not None:
-            return self.gtm.did_work
+            return self.gtm.did_work or bool(self.commerce and self.commerce.did_work)
         if self.publication is not None:
             return self.publication.did_work
+        if self.commerce is not None and self.build is None:
+            return self.commerce.did_work
         if self.agents is not None and self.build is None:
             return self.agents.did_work
         if self.agent_specs is not None and self.build is None:
@@ -87,6 +92,7 @@ class VentureRuntime:
         prospect_gateway: ProspectGateway | None = None,
         contact_gateway: ContactGateway | None = None,
         contact_result_gateway: ContactResultGateway | None = None,
+        commerce_gateway: CommerceGateway | None = None,
     ) -> None:
         self.engine = engine
         self.provider = provider
@@ -109,6 +115,7 @@ class VentureRuntime:
         self.prospect_gateway = prospect_gateway
         self.contact_gateway = contact_gateway
         self.contact_result_gateway = contact_result_gateway
+        self.commerce_gateway = commerce_gateway
 
     def validate(
         self,
@@ -177,6 +184,18 @@ class VentureRuntime:
             max_tokens=max_tokens,
             max_model_cost_cents=max_model_cost_cents,
         )
+        opportunity = self.engine.store.get_opportunity(self.opportunity_id)
+        commerce: CommerceTickReport | None = None
+        commerce_manager = CommerceManager(self.engine, gateway=self.commerce_gateway)
+        if opportunity is not None and commerce_manager.is_eligible(opportunity):
+            commerce = commerce_manager.poll_payment(self.opportunity_id)
+            if commerce.revenue_created:
+                return VentureRuntimeReport(
+                    envelope=self._require_envelope(),
+                    budget=budget,
+                    commerce=commerce,
+                )
+
         report = GTMRuntime(
             self.engine,
             self.provider,
@@ -188,6 +207,7 @@ class VentureRuntime:
         return VentureRuntimeReport(
             envelope=self._require_envelope(),
             budget=budget,
+            commerce=commerce,
             gtm=report,
         )
 
@@ -236,6 +256,7 @@ class VentureRuntime:
         architecture: ArchitecturePlanReport | None = None
         agent_specs: AgentSpecPlanReport | None = None
         agents: ChildAgentFactoryReport | None = None
+        commerce: CommerceTickReport | None = None
         if (
             current is not None
             and current.stage == VentureStage.VALIDATED
@@ -293,6 +314,20 @@ class VentureRuntime:
                     agents=agents,
                 )
 
+            commerce_manager = CommerceManager(self.engine, gateway=self.commerce_gateway)
+            commerce = commerce_manager.advance_prebuild(self.opportunity_id)
+            if commerce_manager.is_eligible(current):
+                if commerce.reason != "commerce_checkout_active" or commerce.did_work:
+                    return VentureRuntimeReport(
+                        envelope=self._require_envelope(),
+                        budget=budget,
+                        validation=validation,
+                        architecture=architecture,
+                        agent_specs=agent_specs,
+                        agents=agents,
+                        commerce=commerce,
+                    )
+
         build = BuilderMachine(
             self.engine,
             self.provider,
@@ -306,6 +341,7 @@ class VentureRuntime:
             architecture=architecture,
             agent_specs=agent_specs,
             agents=agents,
+            commerce=commerce,
             build=build,
         )
 
@@ -321,6 +357,21 @@ class VentureRuntime:
             max_tokens=max_tokens,
             max_model_cost_cents=max_model_cost_cents,
         )
+        opportunity = self.engine.store.get_opportunity(self.opportunity_id)
+        commerce_manager = CommerceManager(self.engine, gateway=self.commerce_gateway)
+        if (
+            opportunity is not None
+            and commerce_manager.is_eligible(opportunity)
+            and commerce_manager.build_context(self.opportunity_id) is None
+        ):
+            return VentureRuntimeReport(
+                envelope=self._require_envelope(),
+                budget=budget,
+                commerce=CommerceTickReport(
+                    reason="commerce_checkout_missing_for_reviewed_preview"
+                ),
+            )
+
         publisher = PreviewPublisher(
             self.engine,
             workspace_root=self.workspace_root,
