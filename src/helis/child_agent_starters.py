@@ -6,12 +6,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
 
-from helis.agent_spec_domain import AgentMemoryScope, AgentSpecBundle, ChildAgentSpec
+from helis.agent_spec_domain import (
+    AgentMemoryScope,
+    AgentSpecBundle,
+    ChildAgentSpec,
+)
 from helis.agent_spec_store import AgentSpecStore
 from helis.bot_architect import architecture_input_hash
 from helis.child_agent_domain import ChildAgentArtifact
 from helis.child_agent_factory import ChildAgentFactory
-from helis.domain import Opportunity, ValidationOutcome, ValidationResult, VentureStage
+from helis.domain import (
+    Opportunity,
+    ValidationOutcome,
+    ValidationResult,
+    VentureStage,
+)
 from helis.engine import HelisEngine
 from helis.venture_architecture_domain import (
     CapabilityImplementation,
