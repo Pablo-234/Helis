@@ -6,6 +6,7 @@ from uuid import UUID
 import typer
 from rich.console import Console
 
+from helis.agent_spec_store import AgentSpecStore
 from helis.contact_gateway import ApprovedContactGateway
 from helis.engine import HelisEngine
 from helis.model_provider import OpenAICompatibleProvider
@@ -80,6 +81,19 @@ def _print(report: VentureRuntimeReport) -> None:
             console.print(
                 f"architecture id={architecture.id} capabilities={len(architecture.capabilities)} "
                 f"ai_agents={ai_agents} snapshot={architecture.input_hash[:12]}…"
+            )
+    if report.agent_specs is not None:
+        item = report.agent_specs
+        bundle = item.bundle
+        console.print(
+            f"agent_specs: created={item.created} model_call_used={item.model_call_used} "
+            f"blocked={item.blocked_reason or '-'} "
+            f"model_budget_exhausted={item.model_budget_exhausted}"
+        )
+        if bundle is not None:
+            console.print(
+                f"agent-spec bundle={bundle.id} agents={len(bundle.agent_specs)} "
+                f"hash={bundle.bundle_hash[:12]}…"
             )
     if report.build is not None:
         item = report.build
@@ -186,6 +200,30 @@ def architecture(
             console.print(f"  - {responsibility}")
 
 
+@app.command("agent-specs")
+def agent_specs(
+    opportunity_id: str,
+    db: Path = Path("helis.db"),
+) -> None:
+    """Show latest child-agent contracts without invoking models, tools or agents."""
+    engine = _engine(db)
+    bundle = AgentSpecStore(engine.store).latest(UUID(opportunity_id))
+    if bundle is None:
+        console.print("no agent specs")
+        raise typer.Exit(code=1)
+    console.print(
+        f"bundle={bundle.id} architecture={bundle.architecture_id} "
+        f"agents={len(bundle.agent_specs)} hash={bundle.bundle_hash}"
+    )
+    for spec in bundle.agent_specs:
+        tools = ",".join(tool.key for tool in spec.allowed_tools) or "none"
+        console.print(
+            f"- {spec.capability_key}: memory={spec.memory_scope.value} "
+            f"turns<={spec.max_model_turns} tools<={spec.max_tool_calls_per_run} "
+            f"tool_keys={tools} metric={spec.success_metric}"
+        )
+
+
 @app.command()
 def advance(
     envelope_id: str,
@@ -195,7 +233,7 @@ def advance(
     workspace_root: Path = Path(".helis/workspaces"),
     db: Path = Path("helis.db"),
 ) -> None:
-    """Advance the venture's current validation/architecture/build/GTM lifecycle phase."""
+    """Advance validation/architecture/agent-spec/build/GTM lifecycle phases."""
     report = _runtime(db, envelope_id, workspace_root).advance(
         max_tokens=max_tokens,
         max_model_cost_cents=max_model_cost_cents,
