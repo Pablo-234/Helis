@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from helis.self_improvement_domain import (
     EvaluationSnapshot,
+    MetricDirection,
     SelfImprovementCandidate,
     SelfImprovementProposal,
 )
@@ -23,6 +24,7 @@ class SelfImprovementGatewayConfigurationError(ValueError):
 class EvaluationGatewayResponse(BaseModel):
     candidate_hash: str = Field(min_length=64, max_length=64)
     metric_name: str = Field(min_length=2, max_length=120)
+    metric_direction: MetricDirection = MetricDirection.HIGHER_IS_BETTER
     baseline_file_hashes: dict[str, str] = Field(default_factory=dict)
     baseline: EvaluationSnapshot
     candidate: EvaluationSnapshot
@@ -111,6 +113,7 @@ class ApprovedSelfImprovementEvaluationGateway:
                     "attest_exact_baseline_file_hashes": True,
                     "immutable_baseline_tests": True,
                     "same_test_suite_for_baseline_and_candidate": True,
+                    "metric_direction": proposal.metric_direction.value,
                     "candidate_network_disabled": True,
                     "candidate_cannot_modify_tests": True,
                     "no_merge": True,
