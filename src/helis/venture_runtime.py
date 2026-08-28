@@ -15,6 +15,9 @@ from helis.engine import HelisEngine
 from helis.gtm_lifecycle import gtm_is_active
 from helis.gtm_runtime import GTMRuntime, GTMTickReport
 from helis.model_provider import ModelProvider
+from helis.preview_domain import PreviewPublishRun, PreviewPublishStatus, PublishedPreview
+from helis.preview_gateway import PreviewGateway
+from helis.preview_publisher import PreviewPublicationError, PreviewPublisher
 from helis.prospect_gateway import ProspectGateway
 from helis.resource_envelope import (
     EnvelopeCycleBudget,
@@ -29,6 +32,18 @@ from helis.validation_machine import ValidationMachine, ValidationTickReport
 
 
 @dataclass(slots=True)
+class PublicationTickReport:
+    run: PreviewPublishRun | None = None
+    publication: PublishedPreview | None = None
+    reason: str = "no_publication_work"
+    created: bool = False
+
+    @property
+    def did_work(self) -> bool:
+        return self.created or self.publication is not None
+
+
+@dataclass(slots=True)
 class VentureRuntimeReport:
     envelope: ResourceEnvelope
     budget: EnvelopeCycleBudget
@@ -37,12 +52,15 @@ class VentureRuntimeReport:
     agent_specs: AgentSpecPlanReport | None = None
     agents: ChildAgentFactoryReport | None = None
     build: BuildTickReport | None = None
+    publication: PublicationTickReport | None = None
     gtm: GTMTickReport | None = None
 
     @property
     def did_work(self) -> bool:
         if self.gtm is not None:
             return self.gtm.did_work
+        if self.publication is not None:
+            return self.publication.did_work
         if self.agents is not None and self.build is None:
             return self.agents.did_work
         if self.agent_specs is not None and self.build is None:
@@ -64,6 +82,7 @@ class VentureRuntime:
         workspace_root: str | Path = ".helis/workspaces",
         agent_workspace_root: str | Path = ".helis/ventures",
         validation_gateway: ApprovedValidationGateway | None = None,
+        preview_gateway: PreviewGateway | None = None,
         prospect_gateway: ProspectGateway | None = None,
         contact_gateway: ContactGateway | None = None,
     ) -> None:
@@ -84,6 +103,7 @@ class VentureRuntime:
         self.workspace_root = Path(workspace_root)
         self.agent_workspace_root = Path(agent_workspace_root)
         self.validation_gateway = validation_gateway
+        self.preview_gateway = preview_gateway
         self.prospect_gateway = prospect_gateway
         self.contact_gateway = contact_gateway
 
@@ -178,6 +198,11 @@ class VentureRuntime:
         opportunity = self.engine.store.get_opportunity(self.opportunity_id)
         if opportunity is None:
             raise ValueError(f"venture not found: {self.opportunity_id}")
+        if opportunity.stage == VentureStage.READY_PREVIEW:
+            return self._advance_publication(
+                max_tokens=max_tokens,
+                max_model_cost_cents=max_model_cost_cents,
+            )
         if gtm_is_active(opportunity.stage):
             return self.market(
                 max_tokens=max_tokens,
@@ -278,6 +303,69 @@ class VentureRuntime:
             agent_specs=agent_specs,
             agents=agents,
             build=build,
+        )
+
+    def _advance_publication(
+        self,
+        *,
+        max_tokens: int,
+        max_model_cost_cents: float,
+    ) -> VentureRuntimeReport:
+        envelope = self._active_envelope()
+        budget = self.envelopes.model_budget(
+            envelope.id,
+            max_tokens=max_tokens,
+            max_model_cost_cents=max_model_cost_cents,
+        )
+        publisher = PreviewPublisher(
+            self.engine,
+            workspace_root=self.workspace_root,
+            gateway=self.preview_gateway,
+        )
+        preview = self.engine.store.get_preview_manifest_for_opportunity(self.opportunity_id)
+        existing = (
+            publisher.state.get_latest_for_preview(preview.id)
+            if preview is not None
+            else None
+        )
+        run = publisher.prepare(self.opportunity_id)
+        if run is None:
+            publication = PublicationTickReport(reason="publication_preview_missing")
+        elif run.status == PreviewPublishStatus.WAITING_APPROVAL:
+            publication = PublicationTickReport(
+                run=run,
+                reason="publication_waiting_approval",
+                created=existing is None,
+            )
+        elif run.status == PreviewPublishStatus.READY and self.preview_gateway is None:
+            publication = PublicationTickReport(
+                run=run,
+                reason="preview_gateway_missing",
+            )
+        elif run.status in {PreviewPublishStatus.BLOCKED, PreviewPublishStatus.FAILED}:
+            publication = PublicationTickReport(
+                run=run,
+                reason=f"publication_{run.status.value}:{run.error or 'unknown'}",
+            )
+        else:
+            try:
+                published = publisher.publish(run.id)
+            except PreviewPublicationError as exc:
+                publication = PublicationTickReport(
+                    run=publisher.state.get_run(run.id) or run,
+                    reason=f"publication_failed:{exc}",
+                )
+            else:
+                publication = PublicationTickReport(
+                    run=publisher.state.get_run(run.id) or run,
+                    publication=published,
+                    reason="publication_published",
+                    created=existing is None,
+                )
+        return VentureRuntimeReport(
+            envelope=self._require_envelope(),
+            budget=budget,
+            publication=publication,
         )
 
     def _active_envelope(self) -> ResourceEnvelope:
