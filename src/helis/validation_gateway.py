@@ -48,6 +48,7 @@ class ApprovedValidationGateway:
 
     name: ClassVar[str] = "approved_validation_gateway_v1"
     requires_run_approval: ClassVar[bool] = True
+    requires_cash_reservation: ClassVar[bool] = True
 
     url: str
     token: str = ""

@@ -54,6 +54,7 @@ class ValidationMachine:
         policy: AutonomyPolicy | None = None,
         validation_budget: ValidationBudget | None = None,
         external_gateway: ApprovedValidationGateway | None = None,
+        cash_envelope_id: UUID | None = None,
     ) -> None:
         self.engine = engine
         self.model_budget = model_budget
@@ -69,6 +70,7 @@ class ValidationMachine:
             self.policy,
             self.validation_budget,
             executors=executors,
+            cash_envelope_id=cash_envelope_id,
         )
         self.decider = VentureDecisionEngine()
         self.follow_up_designer = FollowUpDesigner(provider, model_budget)
