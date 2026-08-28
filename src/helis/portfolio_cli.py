@@ -7,6 +7,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from helis.cash_reservation import CashReservation, CashReservationManager
 from helis.engine import HelisEngine
 from helis.portfolio import PortfolioAllocator, PortfolioBudget, PortfolioStore
 from helis.portfolio_value import VentureCostEvent, VentureValueEstimator
@@ -47,14 +48,39 @@ def _print_plan(plan) -> None:
     )
 
 
-def _print_envelopes(items: list[ResourceEnvelope]) -> None:
-    table = Table("Status", "Cash remaining", "Calls remaining", "Venture", "Envelope")
+def _print_envelopes(
+    items: list[ResourceEnvelope],
+    cash: CashReservationManager,
+) -> None:
+    table = Table(
+        "Status",
+        "Cash available",
+        "Cash spent",
+        "Calls remaining",
+        "Venture",
+        "Envelope",
+    )
     for item in items:
         table.add_row(
             item.status.value,
-            f"{item.remaining_cash_cents}/{item.cash_limit_cents} {item.currency}¢",
+            f"{cash.available_cash(item.id)}/{item.cash_limit_cents} {item.currency}¢",
+            f"{item.cash_consumed_cents} {item.currency}¢",
             f"{item.remaining_model_calls}/{item.model_call_limit}",
             str(item.opportunity_id),
+            str(item.id),
+        )
+    console.print(table)
+
+
+def _print_reservations(items: list[CashReservation]) -> None:
+    table = Table("Status", "Reserved", "Settled", "Source", "Envelope", "Reservation")
+    for item in items:
+        table.add_row(
+            item.status.value,
+            f"{item.reserved_cents} {item.currency}¢",
+            f"{item.settled_cents} {item.currency}¢",
+            item.source,
+            str(item.envelope_id),
             str(item.id),
         )
     console.print(table)
@@ -93,13 +119,80 @@ def activate(db: Path = Path("helis.db")) -> None:
         raise typer.BadParameter("no portfolio plan exists")
     items = ResourceEnvelopeManager(helis).activate(latest)
     console.print(f"[green]activated[/] plan={latest.id} envelopes={len(items)}")
-    _print_envelopes(items)
+    _print_envelopes(items, CashReservationManager(helis))
 
 
 @app.command()
 def envelopes(db: Path = Path("helis.db")) -> None:
-    """List resource envelopes and their remaining capacity."""
-    _print_envelopes(ResourceEnvelopeManager(_engine(db)).list())
+    """List resource envelopes and truly available capacity after open reservations."""
+    helis = _engine(db)
+    _print_envelopes(
+        ResourceEnvelopeManager(helis).list(),
+        CashReservationManager(helis),
+    )
+
+
+@app.command("reserve-cash")
+def reserve_cash(
+    envelope_id: str,
+    amount_cents: int = typer.Option(..., min=1),
+    source: str = typer.Option(...),
+    idempotency_key: str = typer.Option(...),
+    db: Path = Path("helis.db"),
+) -> None:
+    """Reserve cash capacity before an external commitment is made."""
+    manager = CashReservationManager(_engine(db))
+    item = manager.reserve(
+        UUID(envelope_id),
+        amount_cents=amount_cents,
+        source=source,
+        idempotency_key=idempotency_key,
+    )
+    console.print(
+        f"reserved={item.reserved_cents} {item.currency}¢ reservation={item.id} "
+        f"available={manager.available_cash(item.envelope_id)}¢"
+    )
+
+
+@app.command("cash-reservations")
+def cash_reservations(
+    envelope_id: str | None = None,
+    db: Path = Path("helis.db"),
+) -> None:
+    """List cash commitments, optionally for one envelope."""
+    manager = CashReservationManager(_engine(db))
+    _print_reservations(manager.list(UUID(envelope_id) if envelope_id else None))
+
+
+@app.command("settle-cash")
+def settle_cash(
+    reservation_id: str,
+    actual_cents: int = typer.Option(..., min=0),
+    db: Path = Path("helis.db"),
+) -> None:
+    """Settle a cash reservation at the actual cost and release any unused amount."""
+    manager = CashReservationManager(_engine(db))
+    item = manager.settle(UUID(reservation_id), actual_cents=actual_cents)
+    console.print(
+        f"reservation={item.id} status={item.status.value} "
+        f"settled={item.settled_cents}/{item.reserved_cents} {item.currency}¢ "
+        f"available={manager.available_cash(item.envelope_id)}¢"
+    )
+
+
+@app.command("release-cash")
+def release_cash(
+    reservation_id: str,
+    reason: str = typer.Option(...),
+    db: Path = Path("helis.db"),
+) -> None:
+    """Release a reservation that did not become a cash expense."""
+    manager = CashReservationManager(_engine(db))
+    item = manager.release(UUID(reservation_id), reason=reason)
+    console.print(
+        f"reservation={item.id} status={item.status.value} "
+        f"available={manager.available_cash(item.envelope_id)}¢"
+    )
 
 
 @app.command("consume-cash")
@@ -110,16 +203,18 @@ def consume_cash(
     idempotency_key: str = typer.Option(...),
     db: Path = Path("helis.db"),
 ) -> None:
-    """Record an actual cash use against one active resource envelope."""
-    manager = ResourceEnvelopeManager(_engine(db))
+    """Record an immediate actual cash use when no reservation step is needed."""
+    helis = _engine(db)
+    manager = ResourceEnvelopeManager(helis)
     updated = manager.consume(
         UUID(envelope_id),
         source=source,
         idempotency_key=idempotency_key,
         cash_cents=amount_cents,
     )
+    available = CashReservationManager(helis).available_cash(updated.id)
     console.print(
-        f"cash consumed; remaining={updated.remaining_cash_cents}/{updated.cash_limit_cents} "
+        f"cash consumed; available={available}/{updated.cash_limit_cents} "
         f"{updated.currency}¢"
     )
 

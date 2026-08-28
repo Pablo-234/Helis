@@ -5,6 +5,7 @@ from pathlib import Path
 from uuid import UUID
 
 from helis.builder_machine import BuilderMachine, BuildTickReport
+from helis.cash_reservation import CashReservationManager
 from helis.engine import HelisEngine
 from helis.model_provider import ModelProvider
 from helis.resource_envelope import (
@@ -42,6 +43,7 @@ class VentureRuntime:
         self.engine = engine
         self.provider = provider
         self.envelopes = ResourceEnvelopeManager(engine)
+        self.cash = CashReservationManager(engine)
         envelope = self.envelopes.get(envelope_id)
         if envelope is None:
             raise ValueError(f"resource envelope not found: {envelope_id}")
@@ -159,11 +161,11 @@ class VentureRuntime:
             raise ValueError(f"resource envelope not found: {self.envelope_id}")
         return envelope
 
-    @staticmethod
-    def _check_cash_cap(envelope: ResourceEnvelope, requested_cash_cents: float) -> None:
+    def _check_cash_cap(self, envelope: ResourceEnvelope, requested_cash_cents: float) -> None:
         if requested_cash_cents < 0:
             raise ValueError("validation cash cap cannot be negative")
-        if requested_cash_cents > envelope.remaining_cash_cents:
+        available = self.cash.available_cash(envelope.id)
+        if requested_cash_cents > available:
             raise EnvelopeExceeded(
-                "validation cash cap exceeds the venture's remaining portfolio envelope"
+                "validation cash cap exceeds available cash after open reservations"
             )
