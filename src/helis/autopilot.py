@@ -10,6 +10,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 
 from helis.budget import CycleBudget
+from helis.commerce_gateway import CommerceGateway
 from helis.contact_gateway import ContactGateway
 from helis.contact_result_gateway import ContactResultGateway
 from helis.cycle import CycleReport, HelisCycle
@@ -133,6 +134,7 @@ class AutonomousOnlineVentureOperator:
         prospect_gateway: ProspectGateway | None = None,
         contact_gateway: ContactGateway | None = None,
         contact_result_gateway: ContactResultGateway | None = None,
+        commerce_gateway: CommerceGateway | None = None,
     ) -> None:
         self.engine = engine
         self.provider = provider
@@ -143,6 +145,7 @@ class AutonomousOnlineVentureOperator:
         self.prospect_gateway = prospect_gateway
         self.contact_gateway = contact_gateway
         self.contact_result_gateway = contact_result_gateway
+        self.commerce_gateway = commerce_gateway
 
     def run(self, policy: AutopilotPolicy | None = None) -> AutopilotReport:
         selected = policy or AutopilotPolicy()
@@ -244,6 +247,7 @@ class AutonomousOnlineVentureOperator:
             prospect_gateway=self.prospect_gateway,
             contact_gateway=self.contact_gateway,
             contact_result_gateway=self.contact_result_gateway,
+            commerce_gateway=self.commerce_gateway,
         )
 
     def _publication_gates(self) -> list[str]:
