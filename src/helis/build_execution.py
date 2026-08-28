@@ -6,7 +6,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Protocol
 
 
 class BuildExecutionError(RuntimeError):
@@ -22,6 +22,10 @@ class BuildExecutionResult:
     passed: bool
     return_code: int | None
     details: str
+
+
+class BuildExecutionBackend(Protocol):
+    def execute(self, workspace: str | Path) -> BuildExecutionResult: ...
 
 
 Runner = Callable[..., subprocess.CompletedProcess[str]]
@@ -157,7 +161,7 @@ class DockerBuildExecutionBackend:
         )
 
     @staticmethod
-    def _clip(value: str, limit: int = 4000) -> str:
+    def _clip(value: str, limit: int = 1700) -> str:
         normalized = value.replace("\x00", "").strip()
         if len(normalized) <= limit:
             return normalized
