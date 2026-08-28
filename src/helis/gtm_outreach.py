@@ -20,6 +20,7 @@ from helis.gtm_domain import (
     RevenueEvent,
 )
 from helis.gtm_feedback import GTMFeedbackRefresher
+from helis.gtm_lifecycle import gtm_is_active
 from helis.gtm_store import GTMStore, lead_identity
 from helis.policy import ActionKind, ActionRequest, AutonomyPolicy
 
@@ -81,6 +82,7 @@ class OutreachManager:
         existing = self.state.get_latest_run_for_draft(draft.id)
         if existing is not None:
             return existing
+        self._validate_venture_for_contact(lead.opportunity_id)
         self._validate_lead_for_contact(lead)
 
         decision = self.autonomy_policy.evaluate(
@@ -137,6 +139,12 @@ class OutreachManager:
             raise OutreachError("outreach requires a ready approved run")
         if self.gateway is None:
             raise OutreachError("contact gateway is not configured")
+
+        opportunity = self.engine.store.get_opportunity(run.opportunity_id)
+        if opportunity is None:
+            return self._block(run, "venture no longer exists")
+        if not gtm_is_active(opportunity.stage):
+            return self._block(run, f"venture stage {opportunity.stage.value} is not GTM-active")
 
         draft = self._require_draft(run.draft_id)
         lead = self._require_lead(run.lead_id)
@@ -276,6 +284,13 @@ class OutreachManager:
             raise OutreachError("daily contact cap reached")
         if identity_contacts >= self.contact_policy.max_contacts_per_identity:
             raise OutreachError("identity contact cap reached")
+
+    def _validate_venture_for_contact(self, opportunity_id: UUID) -> None:
+        opportunity = self.engine.store.get_opportunity(opportunity_id)
+        if opportunity is None:
+            raise OutreachError("venture no longer exists")
+        if not gtm_is_active(opportunity.stage):
+            raise OutreachError(f"venture stage {opportunity.stage.value} is not GTM-active")
 
     def _validate_lead_for_contact(self, lead: Lead) -> None:
         if lead.stage == LeadStage.SUPPRESSED or self.state.is_suppressed(lead_identity(lead)):
