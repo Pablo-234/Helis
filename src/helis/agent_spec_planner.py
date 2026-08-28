@@ -115,7 +115,7 @@ def _bundle_hash(
         "architecture_id": str(architecture.id),
         "architecture_input_hash": architecture.input_hash,
         "agent_specs": [
-            item.model_dump(mode="json")
+            item.model_dump(mode="json", exclude={"id"})
             for item in sorted(specs, key=lambda spec: spec.capability_key)
         ],
     }
