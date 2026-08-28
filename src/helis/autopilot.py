@@ -18,10 +18,14 @@ from helis.portfolio import PortfolioAllocator, PortfolioBudget, PortfolioPlan, 
 from helis.portfolio_reallocation import ReallocatingPortfolioControlLoop
 from helis.portfolio_scheduler import PortfolioScheduler, SchedulerTickReport
 from helis.portfolio_value import VentureValueEstimator
+from helis.preview_domain import PreviewPublishStatus
+from helis.preview_gateway import PreviewGateway
+from helis.preview_store import PreviewPublicationStore
 from helis.prospect_gateway import ProspectGateway
 from helis.resource_envelope import ResourceEnvelopeManager
 from helis.source_registry import RegistryScanResult
 from helis.validation_gateway import ApprovedValidationGateway
+from helis.venture_runtime import VentureRuntime
 
 
 class AutopilotStopReason(StrEnum):
@@ -124,6 +128,7 @@ class AutonomousOnlineVentureOperator:
         *,
         workspace_root: str | Path = ".helis/workspaces",
         validation_gateway: ApprovedValidationGateway | None = None,
+        preview_gateway: PreviewGateway | None = None,
         prospect_gateway: ProspectGateway | None = None,
         contact_gateway: ContactGateway | None = None,
     ) -> None:
@@ -132,6 +137,7 @@ class AutonomousOnlineVentureOperator:
         self.scanner_factory = scanner_factory
         self.workspace_root = Path(workspace_root)
         self.validation_gateway = validation_gateway
+        self.preview_gateway = preview_gateway
         self.prospect_gateway = prospect_gateway
         self.contact_gateway = contact_gateway
 
@@ -176,6 +182,7 @@ class AutonomousOnlineVentureOperator:
             validation_gateway=self.validation_gateway,
             prospect_gateway=self.prospect_gateway,
             contact_gateway=self.contact_gateway,
+            runtime_factory=self._runtime,
         )
         control = ReallocatingPortfolioControlLoop(self.engine, scheduler)
         rounds: list[SchedulerTickReport] = []
@@ -197,7 +204,12 @@ class AutonomousOnlineVentureOperator:
                 break
 
             reasons = [item.reason for item in tick.items if item.reason]
-            gates = sorted({reason for reason in reasons if self._is_real_world_gate(reason)})
+            gates = sorted(
+                {
+                    *self._publication_gates(),
+                    *(reason for reason in reasons if self._is_real_world_gate(reason)),
+                }
+            )
             if tick.advanced > 0:
                 continue
             if gates:
@@ -217,6 +229,34 @@ class AutonomousOnlineVentureOperator:
             blockers,
             selected.currency,
         )
+
+    def _runtime(self, envelope_id: UUID) -> VentureRuntime:
+        return VentureRuntime(
+            self.engine,
+            self.provider,
+            envelope_id,
+            workspace_root=self.workspace_root,
+            validation_gateway=self.validation_gateway,
+            preview_gateway=self.preview_gateway,
+            prospect_gateway=self.prospect_gateway,
+            contact_gateway=self.contact_gateway,
+        )
+
+    def _publication_gates(self) -> list[str]:
+        state = PreviewPublicationStore(self.engine.store)
+        gates: set[str] = set()
+        for opportunity_id in self._online_ids():
+            preview = self.engine.store.get_preview_manifest_for_opportunity(opportunity_id)
+            if preview is None:
+                continue
+            run = state.get_latest_for_preview(preview.id)
+            if run is None:
+                continue
+            if run.status == PreviewPublishStatus.WAITING_APPROVAL:
+                gates.add(f"publication_waiting_approval:{run.id}")
+            elif run.status == PreviewPublishStatus.READY and self.preview_gateway is None:
+                gates.add(f"preview_gateway_missing:{run.id}")
+        return sorted(gates)
 
     def _discover(self, policy: AutopilotPolicy) -> AutopilotDiscoveryReport:
         scan = self.scanner_factory().scan()
