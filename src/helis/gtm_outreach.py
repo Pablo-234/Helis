@@ -8,6 +8,7 @@ from uuid import UUID
 
 from helis.contact_gateway import ContactGateway
 from helis.domain import AuditEvent, utc_now
+from helis.engine import HelisEngine
 from helis.gtm_domain import (
     Lead,
     LeadResponse,
@@ -20,7 +21,6 @@ from helis.gtm_domain import (
 )
 from helis.gtm_store import GTMStore, lead_identity
 from helis.policy import ActionKind, ActionRequest, AutonomyPolicy
-from helis.engine import HelisEngine
 
 
 class OutreachError(RuntimeError):
@@ -145,7 +145,7 @@ class OutreachManager:
 
         try:
             ack = self.gateway.send(run, lead, draft)
-        except Exception as exc:  # noqa: BLE001 - isolate external delivery boundary
+        except Exception as exc:
             failed = run.model_copy(
                 update={
                     "status": OutreachRunStatus.FAILED,
