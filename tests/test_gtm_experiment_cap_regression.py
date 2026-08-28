@@ -7,7 +7,14 @@ from helis.budget import CycleBudget
 from helis.domain import Opportunity, VentureStage
 from helis.engine import HelisEngine
 from helis.gtm_discovery import GTMDiscoveryMachine
-from helis.gtm_domain import Lead, LeadChannel, LeadStage, OutreachDraft, ProspectEvidence, ProspectQuery
+from helis.gtm_domain import (
+    Lead,
+    LeadChannel,
+    LeadStage,
+    OutreachDraft,
+    ProspectEvidence,
+    ProspectQuery,
+)
 from helis.gtm_experiment import GTMExperimentManager
 from helis.gtm_experiment_domain import GTMExperiment, GTMExperimentArm, GTMExperimentKind
 from helis.gtm_experiment_store import GTMExperimentStore
