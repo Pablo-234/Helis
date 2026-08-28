@@ -6,6 +6,7 @@ from uuid import UUID
 from helis.budget import BudgetExceeded, CycleBudget
 from helis.contact_gateway import ContactGateway
 from helis.engine import HelisEngine
+from helis.gtm_channel_experiment import GTMChannelExperimentManager
 from helis.gtm_discovery import GTMDiscoveryMachine, GTMDiscoveryReport
 from helis.gtm_domain import OutreachRunStatus
 from helis.gtm_experiment import GTMExperimentManager
@@ -24,6 +25,8 @@ class GTMTickReport:
     dispatched_run_id: UUID | None = None
     experiment_id: UUID | None = None
     experiment_planned: bool = False
+    channel_experiment_id: UUID | None = None
+    channel_experiment_planned: bool = False
     waiting_approval: int = 0
     waiting_result: int = 0
     reason: str = "no_gtm_work"
@@ -34,6 +37,7 @@ class GTMTickReport:
             self.prepared_run_id is not None
             or self.dispatched_run_id is not None
             or self.experiment_planned
+            or self.channel_experiment_planned
         ):
             return True
         if self.discovery is None:
@@ -45,6 +49,7 @@ class GTMTickReport:
                 self.discovery.leads_added,
                 self.discovery.leads_qualified,
                 self.discovery.drafts_created,
+                self.discovery.channel_experiment_planned,
             )
         )
 
@@ -71,6 +76,7 @@ class GTMRuntime:
         self.budget = budget
         self.state = GTMStore(engine.store)
         self.experiments = GTMExperimentManager(engine, provider, budget)
+        self.channel_experiments = GTMChannelExperimentManager(engine)
         self.discovery = GTMDiscoveryMachine(
             engine,
             provider,
@@ -78,6 +84,7 @@ class GTMRuntime:
             prospect_gateway,
             draft_limit=1,
             experiment_manager=self.experiments,
+            channel_experiment_manager=self.channel_experiments,
         )
         self.outreach = OutreachManager(
             engine,
@@ -133,17 +140,46 @@ class GTMRuntime:
                 reason="existing_draft_prepared",
             )
 
+        channel_plan = self.channel_experiments.plan_if_eligible(opportunity_id)
+        channel_experiment_id = (
+            channel_plan.experiment.id if channel_plan.experiment is not None else None
+        )
+        channel_experiment_planned = channel_plan.created
+
         if self.prospect_gateway is None:
-            return self._report(opportunity_id, reason="prospect_gateway_missing")
+            return self._report(
+                opportunity_id,
+                channel_experiment_id=channel_experiment_id,
+                channel_experiment_planned=channel_experiment_planned,
+                reason=(
+                    "channel_experiment_planned"
+                    if channel_experiment_planned
+                    else "prospect_gateway_missing"
+                ),
+            )
         if self.budget.model_calls >= self.budget.max_model_calls:
-            return self._report(opportunity_id, reason="no_model_capacity")
+            return self._report(
+                opportunity_id,
+                channel_experiment_id=channel_experiment_id,
+                channel_experiment_planned=channel_experiment_planned,
+                reason=(
+                    "channel_experiment_planned"
+                    if channel_experiment_planned
+                    else "no_model_capacity"
+                ),
+            )
 
         experiment_id: UUID | None = None
         experiment_planned = False
         try:
             experiment_result = self.experiments.plan_if_eligible(opportunity_id)
         except BudgetExceeded:
-            return self._report(opportunity_id, reason="no_model_capacity")
+            return self._report(
+                opportunity_id,
+                channel_experiment_id=channel_experiment_id,
+                channel_experiment_planned=channel_experiment_planned,
+                reason="no_model_capacity",
+            )
         if experiment_result.experiment is not None:
             experiment_id = experiment_result.experiment.id
             experiment_planned = experiment_result.created
@@ -152,6 +188,8 @@ class GTMRuntime:
                 opportunity_id,
                 experiment_id=experiment_id,
                 experiment_planned=True,
+                channel_experiment_id=channel_experiment_id,
+                channel_experiment_planned=channel_experiment_planned,
                 reason="experiment_planned",
             )
 
@@ -162,16 +200,27 @@ class GTMRuntime:
             if draft is not None:
                 prepared_run_id = self.outreach.prepare(draft.id).id
 
+        discovered_channel_id = discovery.channel_experiment_id
+        discovered_channel_planned = discovery.channel_experiment_planned
+        channel_experiment_id = channel_experiment_id or discovered_channel_id
+        channel_experiment_planned = channel_experiment_planned or discovered_channel_planned
+
         if prepared_run_id is not None:
             reason = "discovery_draft_prepared"
         elif experiment_planned and self._discovery_did_progress(discovery):
             reason = "experiment_planned_and_discovery_completed"
         elif experiment_planned:
             reason = "experiment_planned"
+        elif channel_experiment_planned and self._discovery_did_progress(discovery):
+            reason = "channel_experiment_planned_and_discovery_completed"
+        elif channel_experiment_planned:
+            reason = "channel_experiment_planned"
         elif discovery.model_budget_exhausted:
             reason = "no_model_capacity"
         elif discovery.experiment_assignment_cap_reached:
             reason = "experiment_assignment_cap"
+        elif discovery.channel_experiment_blocked:
+            reason = "channel_experiment_waiting_comparable_leads_or_results"
         elif self._discovery_did_progress(discovery):
             reason = "discovery_completed"
         else:
@@ -183,6 +232,8 @@ class GTMRuntime:
             prepared_run_id=prepared_run_id,
             experiment_id=experiment_id or discovery.experiment_id,
             experiment_planned=experiment_planned,
+            channel_experiment_id=channel_experiment_id,
+            channel_experiment_planned=channel_experiment_planned,
             reason=reason,
         )
 
@@ -194,6 +245,7 @@ class GTMRuntime:
                 discovery.leads_added,
                 discovery.leads_qualified,
                 discovery.drafts_created,
+                discovery.channel_experiment_planned,
             )
         )
 
@@ -223,6 +275,8 @@ class GTMRuntime:
         dispatched_run_id: UUID | None = None,
         experiment_id: UUID | None = None,
         experiment_planned: bool = False,
+        channel_experiment_id: UUID | None = None,
+        channel_experiment_planned: bool = False,
         reason: str,
     ) -> GTMTickReport:
         waiting_approval, waiting_result = self._counts(
@@ -235,6 +289,8 @@ class GTMRuntime:
             dispatched_run_id=dispatched_run_id,
             experiment_id=experiment_id,
             experiment_planned=experiment_planned,
+            channel_experiment_id=channel_experiment_id,
+            channel_experiment_planned=channel_experiment_planned,
             waiting_approval=waiting_approval,
             waiting_result=waiting_result,
             reason=reason,
