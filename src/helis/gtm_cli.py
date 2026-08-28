@@ -12,6 +12,7 @@ from helis.contact_gateway import ApprovedContactGateway
 from helis.engine import HelisEngine
 from helis.gtm_discovery import GTMDiscoveryMachine
 from helis.gtm_domain import LeadResponse
+from helis.gtm_experiment_store import GTMExperimentStore
 from helis.gtm_outreach import GTMContactPolicy, OutreachError, OutreachManager
 from helis.gtm_store import GTMStore, lead_identity
 from helis.model_provider import OpenAICompatibleProvider
@@ -89,16 +90,44 @@ def leads(opportunity_id: str, db: Path = Path("helis.db")) -> None:
 @app.command()
 def drafts(opportunity_id: str, db: Path = Path("helis.db")) -> None:
     state = GTMStore(_engine(db).store)
-    table = Table("Organization", "Channel", "Subject", "Draft")
+    table = Table("Organization", "Channel", "Subject", "Experiment arm", "Draft")
     for draft in state.list_drafts(UUID(opportunity_id)):
         lead = state.get_lead(draft.lead_id)
         table.add_row(
             lead.organization if lead else "?",
             draft.channel.value,
             draft.subject or "-",
+            draft.experiment_arm_key or "-",
             str(draft.id),
         )
     console.print(table)
+
+
+@app.command()
+def experiments(opportunity_id: str, db: Path = Path("helis.db")) -> None:
+    """Show persisted bounded offer/pricing experiments without model/network calls."""
+    engine = _engine(db)
+    state = GTMExperimentStore(engine.store)
+    items = state.list(UUID(opportunity_id))
+    table = Table("Status", "Kind", "Arm", "Price", "Winner", "Experiment")
+    for experiment in items:
+        for arm in experiment.arms:
+            price = (
+                f"{arm.price_cents} {arm.currency.upper()}"
+                if arm.price_cents is not None
+                else "-"
+            )
+            table.add_row(
+                experiment.status.value,
+                experiment.kind.value,
+                f"{arm.key}: {arm.label}",
+                price,
+                experiment.winner_arm_key or "-",
+                str(experiment.id),
+            )
+    console.print(table)
+    if not items:
+        console.print("[yellow]no GTM experiments for this venture[/]")
 
 
 @app.command()
