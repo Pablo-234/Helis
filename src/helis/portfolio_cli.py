@@ -10,6 +10,7 @@ from rich.table import Table
 from helis.engine import HelisEngine
 from helis.portfolio import PortfolioAllocator, PortfolioBudget, PortfolioStore
 from helis.portfolio_value import VentureCostEvent, VentureValueEstimator
+from helis.resource_envelope import ResourceEnvelope, ResourceEnvelopeManager
 from helis.store import HelisStore
 
 app = typer.Typer(help="HELIS portfolio and capital allocation planning")
@@ -46,6 +47,19 @@ def _print_plan(plan) -> None:
     )
 
 
+def _print_envelopes(items: list[ResourceEnvelope]) -> None:
+    table = Table("Status", "Cash remaining", "Calls remaining", "Venture", "Envelope")
+    for item in items:
+        table.add_row(
+            item.status.value,
+            f"{item.remaining_cash_cents}/{item.cash_limit_cents} {item.currency}¢",
+            f"{item.remaining_model_calls}/{item.model_call_limit}",
+            str(item.opportunity_id),
+            str(item.id),
+        )
+    console.print(table)
+
+
 @app.command()
 def plan(
     cash_cents: int = typer.Option(0, min=0),
@@ -70,6 +84,57 @@ def plan(
     _print_plan(portfolio)
 
 
+@app.command()
+def activate(db: Path = Path("helis.db")) -> None:
+    """Activate resource envelopes from the latest plan and revoke older active envelopes."""
+    helis = _engine(db)
+    latest = PortfolioStore(helis).latest()
+    if latest is None:
+        raise typer.BadParameter("no portfolio plan exists")
+    items = ResourceEnvelopeManager(helis).activate(latest)
+    console.print(f"[green]activated[/] plan={latest.id} envelopes={len(items)}")
+    _print_envelopes(items)
+
+
+@app.command()
+def envelopes(db: Path = Path("helis.db")) -> None:
+    """List resource envelopes and their remaining capacity."""
+    _print_envelopes(ResourceEnvelopeManager(_engine(db)).list())
+
+
+@app.command("consume-cash")
+def consume_cash(
+    envelope_id: str,
+    amount_cents: int = typer.Option(..., min=1),
+    source: str = typer.Option(...),
+    idempotency_key: str = typer.Option(...),
+    db: Path = Path("helis.db"),
+) -> None:
+    """Record an actual cash use against one active resource envelope."""
+    manager = ResourceEnvelopeManager(_engine(db))
+    updated = manager.consume(
+        UUID(envelope_id),
+        source=source,
+        idempotency_key=idempotency_key,
+        cash_cents=amount_cents,
+    )
+    console.print(
+        f"cash consumed; remaining={updated.remaining_cash_cents}/{updated.cash_limit_cents} "
+        f"{updated.currency}¢"
+    )
+
+
+@app.command()
+def revoke(
+    envelope_id: str,
+    reason: str = typer.Option(...),
+    db: Path = Path("helis.db"),
+) -> None:
+    """Revoke an envelope so no new venture work can consume it."""
+    updated = ResourceEnvelopeManager(_engine(db)).revoke(UUID(envelope_id), reason=reason)
+    console.print(f"envelope={updated.id} status={updated.status.value}")
+
+
 @app.command("record-cost")
 def record_cost(
     opportunity_id: str,
@@ -79,7 +144,7 @@ def record_cost(
     external_ref: str | None = typer.Option(None),
     db: Path = Path("helis.db"),
 ) -> None:
-    """Record an actual venture cash cost. Repeated source+external-ref pairs are idempotent."""
+    """Record an actual venture cost outside an active envelope."""
     helis = _engine(db)
     saved = VentureValueEstimator(helis).record_cost(
         VentureCostEvent(
