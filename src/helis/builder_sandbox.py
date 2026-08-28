@@ -5,8 +5,14 @@ import re
 from pathlib import Path, PurePosixPath
 
 from helis.build_templates import get_template
-from helis.domain import BuildBundle, BuildCheck, BuildFile, BuildRun, BuildSpec, BuildTemplate
-
+from helis.domain import (
+    BuildBundle,
+    BuildCheck,
+    BuildFile,
+    BuildRun,
+    BuildSpec,
+    BuildTemplate,
+)
 
 _SECRET_PATTERNS = [
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----", re.IGNORECASE),
