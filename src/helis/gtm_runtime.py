@@ -5,6 +5,7 @@ from uuid import UUID
 
 from helis.budget import BudgetExceeded, CycleBudget
 from helis.contact_gateway import ContactGateway
+from helis.contact_result_gateway import ContactResultGateway
 from helis.engine import HelisEngine
 from helis.gtm_channel_experiment import GTMChannelExperimentManager
 from helis.gtm_discovery import GTMDiscoveryMachine, GTMDiscoveryReport
@@ -38,6 +39,7 @@ class GTMTickReport:
             or self.dispatched_run_id is not None
             or self.experiment_planned
             or self.channel_experiment_planned
+            or self.reason in {"observed_response_ingested", "observed_sale_ingested"}
         ):
             return True
         if self.discovery is None:
@@ -65,6 +67,7 @@ class GTMRuntime:
         *,
         prospect_gateway: ProspectGateway | None = None,
         contact_gateway: ContactGateway | None = None,
+        contact_result_gateway: ContactResultGateway | None = None,
         max_waiting_approval: int = 3,
         max_waiting_result: int = 3,
     ) -> None:
@@ -92,6 +95,7 @@ class GTMRuntime:
             contact_policy=GTMContactPolicy(),
         )
         self.contact_gateway = contact_gateway
+        self.contact_result_gateway = contact_result_gateway
         self.prospect_gateway = prospect_gateway
         self.max_waiting_approval = max_waiting_approval
         self.max_waiting_result = max_waiting_result
@@ -107,6 +111,29 @@ class GTMRuntime:
             )
 
         runs = self.state.list_outreach_runs(opportunity_id)
+        waiting_result_run = next(
+            (
+                run
+                for run in runs
+                if run.status in {OutreachRunStatus.DISPATCHED, OutreachRunStatus.WAITING_RESULT}
+            ),
+            None,
+        )
+        if waiting_result_run is not None:
+            if self.contact_result_gateway is None:
+                return self._report(opportunity_id, reason="contact_result_gateway_missing")
+            response = self.contact_result_gateway.fetch(waiting_result_run)
+            if response is not None:
+                _, revenue = self.outreach.record_response(response)
+                return self._report(
+                    opportunity_id,
+                    reason=(
+                        "observed_sale_ingested"
+                        if revenue is not None
+                        else "observed_response_ingested"
+                    ),
+                )
+
         ready = next(
             (
                 run
