@@ -316,17 +316,18 @@ class VentureRuntime:
 
             commerce_manager = CommerceManager(self.engine, gateway=self.commerce_gateway)
             commerce = commerce_manager.advance_prebuild(self.opportunity_id)
-            if commerce_manager.is_eligible(current):
-                if commerce.reason != "commerce_checkout_active" or commerce.did_work:
-                    return VentureRuntimeReport(
-                        envelope=self._require_envelope(),
-                        budget=budget,
-                        validation=validation,
-                        architecture=architecture,
-                        agent_specs=agent_specs,
-                        agents=agents,
-                        commerce=commerce,
-                    )
+            if commerce_manager.is_eligible(current) and (
+                commerce.reason != "commerce_checkout_active" or commerce.did_work
+            ):
+                return VentureRuntimeReport(
+                    envelope=self._require_envelope(),
+                    budget=budget,
+                    validation=validation,
+                    architecture=architecture,
+                    agent_specs=agent_specs,
+                    agents=agents,
+                    commerce=commerce,
+                )
 
         build = BuilderMachine(
             self.engine,
