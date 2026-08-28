@@ -6,8 +6,10 @@ from uuid import UUID
 import typer
 from rich.console import Console
 
+from helis.contact_gateway import ApprovedContactGateway
 from helis.engine import HelisEngine
 from helis.model_provider import OpenAICompatibleProvider
+from helis.prospect_gateway import ApprovedProspectGateway
 from helis.store import HelisStore
 from helis.validation_gateway import ApprovedValidationGateway
 from helis.venture_runtime import VentureRuntime, VentureRuntimeReport
@@ -31,6 +33,8 @@ def _runtime(
         UUID(envelope_id),
         workspace_root=workspace_root,
         validation_gateway=ApprovedValidationGateway.from_env(),
+        prospect_gateway=ApprovedProspectGateway.from_env(),
+        contact_gateway=ApprovedContactGateway.from_env(),
     )
 
 
@@ -72,6 +76,20 @@ def _print(report: VentureRuntimeReport) -> None:
                 f"[green]preview ready[/] {item.preview.entrypoint} "
                 f"hash={item.preview.artifact_hash[:12]}…"
             )
+    if report.gtm is not None:
+        item = report.gtm
+        console.print(
+            f"gtm: reason={item.reason} waiting_approval={item.waiting_approval} "
+            f"waiting_result={item.waiting_result} prepared={item.prepared_run_id or '-'} "
+            f"dispatched={item.dispatched_run_id or '-'}"
+        )
+        if item.discovery is not None:
+            discovery = item.discovery
+            console.print(
+                f"discovery: queries={discovery.queries_planned} candidates={discovery.candidates_seen} "
+                f"leads={discovery.leads_added} qualified={discovery.leads_qualified} "
+                f"drafts={discovery.drafts_created}"
+            )
 
 
 @app.command()
@@ -109,6 +127,22 @@ def build(
 
 
 @app.command()
+def market(
+    envelope_id: str,
+    max_tokens: int = typer.Option(45_000, min=1),
+    max_model_cost_cents: float = typer.Option(15.0, min=0),
+    workspace_root: Path = Path(".helis/workspaces"),
+    db: Path = Path("helis.db"),
+) -> None:
+    """Advance one GTM tick without ever granting external-contact approval."""
+    report = _runtime(db, envelope_id, workspace_root).market(
+        max_tokens=max_tokens,
+        max_model_cost_cents=max_model_cost_cents,
+    )
+    _print(report)
+
+
+@app.command()
 def advance(
     envelope_id: str,
     validation_cash_cents: float = typer.Option(0, min=0),
@@ -117,7 +151,7 @@ def advance(
     workspace_root: Path = Path(".helis/workspaces"),
     db: Path = Path("helis.db"),
 ) -> None:
-    """Run validate then build with one shared envelope-backed model budget."""
+    """Advance the venture's current validation/build/GTM lifecycle phase."""
     report = _runtime(db, envelope_id, workspace_root).advance(
         max_tokens=max_tokens,
         max_model_cost_cents=max_model_cost_cents,
