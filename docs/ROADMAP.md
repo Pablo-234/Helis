@@ -143,7 +143,11 @@ Exit criterion: core path met. HELIS may propose and evaluate a bounded low-auth
 - [x] Bot Architect: snapshot-bound minimal capability DAG over deterministic automation / AI agent / human / external service
 - [x] architecture policy caps graph/AI-agent size, forbids child SELF_MODIFY and requires venture isolation
 - [x] fresh validated architecture is an explicit autonomous checkpoint before the builder; unchanged snapshots cost zero additional model calls
-- [ ] Agent Specification Language: typed goals, inputs, tools, memory boundaries, constraints and success metrics
+- [x] Agent Specification Language: one typed child-agent contract per AI capability, never for deterministic/human/external capabilities
+- [x] agent specs inherit goal/IO/success metric from architecture and cannot broaden capability authority
+- [x] symbolic tool/credential requirements, bounded memory/turn/tool scopes and venture/customer-data isolation policy
+- [x] stale architecture blocks spec generation before a model call; zero-AI architecture produces an empty bundle with zero calls
+- [x] fresh non-empty agent specs are a second autonomous checkpoint before the builder
 - [ ] Child Agent Factory: build isolated venture-owned agents from approved specs rather than hard-coding product bots into HELIS
 - [ ] venture-level multi-agent orchestration with strict tenant/data/credential/resource isolation
 - [ ] bounded tool/connector factory for missing capabilities
