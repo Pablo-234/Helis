@@ -12,7 +12,10 @@ from helis.self_improvement_branch_domain import (
 from helis.self_improvement_branch_gateway import SelfImprovementBranchGateway
 from helis.self_improvement_branch_store import SelfImprovementBranchStore
 from helis.self_improvement_domain import ImprovementStatus
-from helis.self_improvement_sandbox import SelfImprovementSandbox
+from helis.self_improvement_sandbox import (
+    SelfImprovementSandbox,
+    UnsafeSelfImprovementWorkspace,
+)
 from helis.self_improvement_store import SelfImprovementStore
 
 
@@ -124,12 +127,14 @@ class SelfImprovementBranchManager:
         if run.status != BranchMaterializationStatus.READY or not run.approval_granted:
             raise SelfImprovementBranchError("branch materialization requires explicit run approval")
 
-        proposal, candidate, evaluation = self._accepted_bundle(run.proposal_id)
+        try:
+            proposal, candidate, evaluation = self._accepted_bundle(run.proposal_id)
+        except (SelfImprovementBranchError, UnsafeSelfImprovementWorkspace) as exc:
+            return self._block(run, f"accepted bundle invalid after branch approval: {exc}")
         if candidate.id != run.candidate_id or evaluation.id != run.evaluation_id:
             return self._block(run, "accepted bundle changed after branch approval")
         if candidate.candidate_hash != run.candidate_hash:
             return self._block(run, "candidate hash changed after branch approval")
-        self.sandbox.verify(candidate)
         if self.gateway is None:
             raise SelfImprovementBranchError("self-improvement branch gateway is not configured")
 
