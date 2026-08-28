@@ -8,6 +8,12 @@ from rich.table import Table
 
 from helis.contact_gateway import ApprovedContactGateway
 from helis.engine import HelisEngine
+from helis.market_control_loop import MarketAwarePortfolioControlLoop
+from helis.market_discovery import (
+    MarketDiscoveryMachine,
+    MarketDiscoveryPolicy,
+    MarketDiscoveryStore,
+)
 from helis.model_provider import OpenAICompatibleProvider
 from helis.portfolio import PortfolioStore
 from helis.portfolio_reallocation import ReallocatingPortfolioControlLoop
@@ -26,7 +32,13 @@ def _engine(db: Path) -> HelisEngine:
     return HelisEngine(HelisStore(db))
 
 
-def _control_loop(helis: HelisEngine, workspace_root: Path) -> ReallocatingPortfolioControlLoop:
+def _control_loop(
+    helis: HelisEngine,
+    workspace_root: Path,
+    *,
+    market_config: Path,
+    market_policy: MarketDiscoveryPolicy,
+) -> MarketAwarePortfolioControlLoop:
     provider = OpenAICompatibleProvider.from_env()
     scheduler = PortfolioScheduler(
         helis,
@@ -36,7 +48,28 @@ def _control_loop(helis: HelisEngine, workspace_root: Path) -> ReallocatingPortf
         prospect_gateway=ApprovedProspectGateway.from_env(),
         contact_gateway=ApprovedContactGateway.from_env(),
     )
-    return ReallocatingPortfolioControlLoop(helis, scheduler)
+    portfolio_loop = ReallocatingPortfolioControlLoop(helis, scheduler)
+    market = MarketDiscoveryMachine(
+        helis,
+        provider,
+        config_path=market_config,
+        policy=market_policy,
+    )
+    return MarketAwarePortfolioControlLoop(helis, market, portfolio_loop)
+
+
+def _market_policy(
+    scan_interval_seconds: int,
+    max_model_calls: int,
+    max_tokens: int,
+    max_cost_cents: float,
+) -> MarketDiscoveryPolicy:
+    return MarketDiscoveryPolicy(
+        scan_interval_seconds=scan_interval_seconds,
+        max_model_calls=max_model_calls,
+        max_tokens=max_tokens,
+        max_cost_cents=max_cost_cents,
+    )
 
 
 def _print_report(report: SchedulerTickReport) -> None:
@@ -72,12 +105,28 @@ def _gateway_status(factory) -> str:
 @app.command()
 def tick(
     max_advances: int = typer.Option(1, min=1, max=20),
+    market_scan_interval_seconds: int = typer.Option(21_600, min=60, max=604_800),
+    market_max_calls: int = typer.Option(3, min=0, max=20),
+    market_max_tokens: int = typer.Option(40_000, min=0, max=500_000),
+    market_max_cost_cents: float = typer.Option(10.0, min=0, max=10_000),
+    market_config: Path = Path("helis.toml"),
     workspace_root: Path = Path(".helis/workspaces"),
     db: Path = Path("helis.db"),
 ) -> None:
-    """Reconcile remaining capital, then advance eligible funded ventures once."""
+    """Run bounded market discovery, reconcile capital, then advance funded ventures once."""
     helis = _engine(db)
-    _print_report(_control_loop(helis, workspace_root).tick(max_advances=max_advances))
+    loop = _control_loop(
+        helis,
+        workspace_root,
+        market_config=market_config,
+        market_policy=_market_policy(
+            market_scan_interval_seconds,
+            market_max_calls,
+            market_max_tokens,
+            market_max_cost_cents,
+        ),
+    )
+    _print_report(loop.tick(max_advances=max_advances))
 
 
 @app.command()
@@ -85,15 +134,28 @@ def wake(
     minimum_interval_seconds: int = typer.Option(900, min=0, max=86_400),
     lease_seconds: int = typer.Option(600, min=1, max=86_400),
     max_advances: int = typer.Option(1, min=1, max=20),
+    market_scan_interval_seconds: int = typer.Option(21_600, min=60, max=604_800),
+    market_max_calls: int = typer.Option(3, min=0, max=20),
+    market_max_tokens: int = typer.Option(40_000, min=0, max=500_000),
+    market_max_cost_cents: float = typer.Option(10.0, min=0, max=10_000),
+    market_config: Path = Path("helis.toml"),
     workspace_root: Path = Path(".helis/workspaces"),
     db: Path = Path("helis.db"),
 ) -> None:
-    """Cron-safe wake: reconcile capital and tick only when due and no lease is active."""
+    """Cron-safe wake: discover markets, reconcile capital and advance bounded funded work."""
     helis = _engine(db)
-    result = SchedulerWakeController(
+    loop = _control_loop(
         helis,
-        _control_loop(helis, workspace_root),
-    ).wake(
+        workspace_root,
+        market_config=market_config,
+        market_policy=_market_policy(
+            market_scan_interval_seconds,
+            market_max_calls,
+            market_max_tokens,
+            market_max_cost_cents,
+        ),
+    )
+    result = SchedulerWakeController(helis, loop).wake(
         WakePolicy(
             minimum_interval_seconds=minimum_interval_seconds,
             lease_seconds=lease_seconds,
@@ -123,6 +185,27 @@ def wake_status(db: Path = Path("helis.db")) -> None:
     )
 
 
+@app.command("market-status")
+def market_status(db: Path = Path("helis.db")) -> None:
+    """Show the latest persisted scheduled market-discovery result."""
+    result = MarketDiscoveryStore(_engine(db)).latest()
+    if result is None:
+        console.print("market discovery: [yellow]no ticks yet[/]")
+        return
+    console.print(
+        f"market={result.scan_disposition.value} scanned={result.scan_fetched} "
+        f"new={result.new_observations} processed={result.observations_processed} "
+        f"discovered={result.candidates_discovered} evaluated={result.candidates_evaluated}"
+    )
+    console.print(
+        f"usage calls={result.model_calls} tokens={result.tokens} "
+        f"cost≈{result.cost_cents:.3f}¢ exhausted={result.budget_exhausted}"
+    )
+    console.print(f"reason={result.reason}; scan={result.scan_reason}")
+    for failure in result.source_failures:
+        console.print(f"[yellow]source failed[/] {failure}")
+
+
 @app.command()
 def status(db: Path = Path("helis.db")) -> None:
     """Show the most recently persisted scheduler tick."""
@@ -136,6 +219,7 @@ def status(db: Path = Path("helis.db")) -> None:
 
 @app.command()
 def health(
+    market_config: Path = Path("helis.toml"),
     workspace_root: Path = Path(".helis/workspaces"),
     db: Path = Path("helis.db"),
 ) -> None:
@@ -145,10 +229,15 @@ def health(
     plan = PortfolioStore(helis).latest()
     active = ResourceEnvelopeManager(helis).list(status=EnvelopeStatus.ACTIVE)
     latest_wake = SchedulerWakeStore(helis).latest_result()
+    latest_market = MarketDiscoveryStore(helis).latest()
 
     table = Table("Component", "State")
     table.add_row("database", str(db.expanduser().resolve()))
     table.add_row("workspace", str(workspace_root.expanduser().resolve()))
+    table.add_row(
+        "market config",
+        str(market_config.expanduser().resolve()) if market_config.is_file() else "not found",
+    )
     table.add_row("LLM endpoint", provider.base_url)
     table.add_row("LLM model", provider.model)
     table.add_row("latest portfolio plan", str(plan.id) if plan else "not created")
@@ -159,6 +248,14 @@ def health(
             f"{latest_wake.disposition.value} @ {latest_wake.attempted_at.isoformat()}"
             if latest_wake
             else "no wake attempts yet"
+        ),
+    )
+    table.add_row(
+        "last market discovery",
+        (
+            f"{latest_market.scan_disposition.value} @ {latest_market.created_at.isoformat()}"
+            if latest_market
+            else "no market discovery ticks yet"
         ),
     )
     table.add_row("validation gateway", _gateway_status(ApprovedValidationGateway.from_env))
