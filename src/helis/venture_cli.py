@@ -12,6 +12,7 @@ from helis.model_provider import OpenAICompatibleProvider
 from helis.prospect_gateway import ApprovedProspectGateway
 from helis.store import HelisStore
 from helis.validation_gateway import ApprovedValidationGateway
+from helis.venture_architecture_store import VentureArchitectureStore
 from helis.venture_runtime import VentureRuntime, VentureRuntimeReport
 
 app = typer.Typer(help="Run one HELIS venture inside its active portfolio resource envelope")
@@ -63,6 +64,22 @@ def _print(report: VentureRuntimeReport) -> None:
             console.print(
                 f"validation decision={item.decision.decision.value} "
                 f"confidence={item.decision.confidence:.2f}"
+            )
+    if report.architecture is not None:
+        item = report.architecture
+        architecture = item.architecture
+        console.print(
+            f"architecture: created={item.created} blocked={item.blocked_reason or '-'} "
+            f"model_budget_exhausted={item.model_budget_exhausted}"
+        )
+        if architecture is not None:
+            ai_agents = sum(
+                capability.implementation.value == "ai_agent"
+                for capability in architecture.capabilities
+            )
+            console.print(
+                f"architecture id={architecture.id} capabilities={len(architecture.capabilities)} "
+                f"ai_agents={ai_agents} snapshot={architecture.input_hash[:12]}…"
             )
     if report.build is not None:
         item = report.build
@@ -143,6 +160,33 @@ def market(
 
 
 @app.command()
+def architecture(
+    opportunity_id: str,
+    db: Path = Path("helis.db"),
+) -> None:
+    """Show the latest persisted child-venture capability graph without model/network calls."""
+    engine = _engine(db)
+    item = VentureArchitectureStore(engine.store).latest(UUID(opportunity_id))
+    if item is None:
+        console.print("no architecture")
+        raise typer.Exit(code=1)
+    console.print(
+        f"architecture={item.id} venture={item.opportunity_id} snapshot={item.input_hash}"
+    )
+    for capability in item.capabilities:
+        actions = ",".join(action.value for action in capability.required_actions) or "none"
+        dependencies = ",".join(capability.depends_on) or "none"
+        console.print(
+            f"- {capability.key}: {capability.implementation.value} "
+            f"depends_on={dependencies} actions={actions} metric={capability.success_metric}"
+        )
+    if item.owner_responsibilities:
+        console.print("owner responsibilities:")
+        for responsibility in item.owner_responsibilities:
+            console.print(f"  - {responsibility}")
+
+
+@app.command()
 def advance(
     envelope_id: str,
     validation_cash_cents: float = typer.Option(0, min=0),
@@ -151,7 +195,7 @@ def advance(
     workspace_root: Path = Path(".helis/workspaces"),
     db: Path = Path("helis.db"),
 ) -> None:
-    """Advance the venture's current validation/build/GTM lifecycle phase."""
+    """Advance the venture's current validation/architecture/build/GTM lifecycle phase."""
     report = _runtime(db, envelope_id, workspace_root).advance(
         max_tokens=max_tokens,
         max_model_cost_cents=max_model_cost_cents,

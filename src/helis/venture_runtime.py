@@ -4,9 +4,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
 
+from helis.bot_architect import ArchitecturePlanReport, BotArchitect
 from helis.builder_machine import BuilderMachine, BuildTickReport
 from helis.cash_reservation import CashReservationManager
 from helis.contact_gateway import ContactGateway
+from helis.domain import VentureStage
 from helis.engine import HelisEngine
 from helis.gtm_lifecycle import gtm_is_active
 from helis.gtm_runtime import GTMRuntime, GTMTickReport
@@ -29,6 +31,7 @@ class VentureRuntimeReport:
     envelope: ResourceEnvelope
     budget: EnvelopeCycleBudget
     validation: ValidationTickReport | None = None
+    architecture: ArchitecturePlanReport | None = None
     build: BuildTickReport | None = None
     gtm: GTMTickReport | None = None
 
@@ -36,6 +39,8 @@ class VentureRuntimeReport:
     def did_work(self) -> bool:
         if self.gtm is not None:
             return self.gtm.did_work
+        if self.architecture is not None and self.build is None:
+            return self.architecture.did_work
         return True
 
 
@@ -187,6 +192,32 @@ class VentureRuntime:
             external_gateway=self.validation_gateway,
             cash_envelope_id=envelope.id,
         ).tick(self.opportunity_id)
+
+        current = self.engine.store.get_opportunity(self.opportunity_id)
+        architecture: ArchitecturePlanReport | None = None
+        if (
+            current is not None
+            and current.stage == VentureStage.VALIDATED
+            and current.business_model is not None
+        ):
+            architecture = BotArchitect(self.engine, self.provider, budget).plan_if_needed(
+                self.opportunity_id
+            )
+            if architecture.created or architecture.model_budget_exhausted:
+                return VentureRuntimeReport(
+                    envelope=self._require_envelope(),
+                    budget=budget,
+                    validation=validation,
+                    architecture=architecture,
+                )
+            if architecture.blocked_reason is not None:
+                return VentureRuntimeReport(
+                    envelope=self._require_envelope(),
+                    budget=budget,
+                    validation=validation,
+                    architecture=architecture,
+                )
+
         build = BuilderMachine(
             self.engine,
             self.provider,
@@ -197,6 +228,7 @@ class VentureRuntime:
             envelope=self._require_envelope(),
             budget=budget,
             validation=validation,
+            architecture=architecture,
             build=build,
         )
 
