@@ -3,7 +3,14 @@ from __future__ import annotations
 from urllib.parse import urlsplit
 from uuid import UUID
 
-from helis.gtm_domain import Lead, OutreachDraft, ProspectQuery
+from helis.gtm_domain import (
+    Lead,
+    LeadResponse,
+    OutreachDraft,
+    OutreachRun,
+    ProspectQuery,
+    RevenueEvent,
+)
 from helis.store import HelisStore
 
 
@@ -54,6 +61,43 @@ class GTMStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_outreach_drafts_lead
                     ON outreach_drafts(lead_id, created_at);
+                CREATE TABLE IF NOT EXISTS outreach_runs (
+                    id TEXT PRIMARY KEY,
+                    draft_id TEXT NOT NULL,
+                    lead_id TEXT NOT NULL,
+                    opportunity_id TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_outreach_runs_draft
+                    ON outreach_runs(draft_id, updated_at);
+                CREATE INDEX IF NOT EXISTS idx_outreach_runs_lead
+                    ON outreach_runs(lead_id, updated_at);
+                CREATE INDEX IF NOT EXISTS idx_outreach_runs_venture
+                    ON outreach_runs(opportunity_id, updated_at);
+                CREATE TABLE IF NOT EXISTS lead_responses (
+                    id TEXT PRIMARY KEY,
+                    run_id TEXT UNIQUE NOT NULL,
+                    lead_id TEXT NOT NULL,
+                    opportunity_id TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_lead_responses_venture
+                    ON lead_responses(opportunity_id, created_at);
+                CREATE TABLE IF NOT EXISTS revenue_events (
+                    id TEXT PRIMARY KEY,
+                    response_id TEXT UNIQUE,
+                    lead_id TEXT NOT NULL,
+                    opportunity_id TEXT NOT NULL,
+                    amount_cents INTEGER NOT NULL,
+                    currency TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    recorded_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_revenue_events_venture
+                    ON revenue_events(opportunity_id, recorded_at);
                 CREATE TABLE IF NOT EXISTS gtm_suppressions (
                     identity_key TEXT PRIMARY KEY,
                     reason TEXT NOT NULL,
@@ -137,6 +181,13 @@ class GTMStore:
                 ),
             )
 
+    def get_draft(self, draft_id: UUID) -> OutreachDraft | None:
+        with self.store.connect() as db:
+            row = db.execute(
+                "SELECT payload FROM outreach_drafts WHERE id = ?", (str(draft_id),)
+            ).fetchone()
+        return OutreachDraft.model_validate_json(row["payload"]) if row else None
+
     def get_draft_for_lead(self, lead_id: UUID) -> OutreachDraft | None:
         with self.store.connect() as db:
             row = db.execute(
@@ -145,6 +196,133 @@ class GTMStore:
                 (str(lead_id),),
             ).fetchone()
         return OutreachDraft.model_validate_json(row["payload"]) if row else None
+
+    def list_drafts(self, opportunity_id: UUID) -> list[OutreachDraft]:
+        with self.store.connect() as db:
+            rows = db.execute(
+                "SELECT payload FROM outreach_drafts WHERE opportunity_id = ? ORDER BY created_at ASC",
+                (str(opportunity_id),),
+            ).fetchall()
+        return [OutreachDraft.model_validate_json(row["payload"]) for row in rows]
+
+    def save_outreach_run(self, run: OutreachRun) -> None:
+        with self.store.connect() as db:
+            db.execute(
+                "INSERT OR REPLACE INTO outreach_runs "
+                "(id, draft_id, lead_id, opportunity_id, status, payload, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    str(run.id),
+                    str(run.draft_id),
+                    str(run.lead_id),
+                    str(run.opportunity_id),
+                    run.status.value,
+                    run.model_dump_json(),
+                    run.updated_at.isoformat(),
+                ),
+            )
+
+    def get_outreach_run(self, run_id: UUID) -> OutreachRun | None:
+        with self.store.connect() as db:
+            row = db.execute(
+                "SELECT payload FROM outreach_runs WHERE id = ?", (str(run_id),)
+            ).fetchone()
+        return OutreachRun.model_validate_json(row["payload"]) if row else None
+
+    def get_latest_run_for_draft(self, draft_id: UUID) -> OutreachRun | None:
+        with self.store.connect() as db:
+            row = db.execute(
+                "SELECT payload FROM outreach_runs WHERE draft_id = ? "
+                "ORDER BY updated_at DESC LIMIT 1",
+                (str(draft_id),),
+            ).fetchone()
+        return OutreachRun.model_validate_json(row["payload"]) if row else None
+
+    def list_outreach_runs(self, opportunity_id: UUID | None = None) -> list[OutreachRun]:
+        with self.store.connect() as db:
+            if opportunity_id is None:
+                rows = db.execute(
+                    "SELECT payload FROM outreach_runs ORDER BY updated_at DESC"
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    "SELECT payload FROM outreach_runs WHERE opportunity_id = ? "
+                    "ORDER BY updated_at DESC",
+                    (str(opportunity_id),),
+                ).fetchall()
+        return [OutreachRun.model_validate_json(row["payload"]) for row in rows]
+
+    def save_response(self, response: LeadResponse) -> bool:
+        with self.store.connect() as db:
+            cursor = db.execute(
+                "INSERT OR IGNORE INTO lead_responses "
+                "(id, run_id, lead_id, opportunity_id, payload, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    str(response.id),
+                    str(response.run_id),
+                    str(response.lead_id),
+                    str(response.opportunity_id),
+                    response.model_dump_json(),
+                    response.created_at.isoformat(),
+                ),
+            )
+            return cursor.rowcount > 0
+
+    def get_response_for_run(self, run_id: UUID) -> LeadResponse | None:
+        with self.store.connect() as db:
+            row = db.execute(
+                "SELECT payload FROM lead_responses WHERE run_id = ?", (str(run_id),)
+            ).fetchone()
+        return LeadResponse.model_validate_json(row["payload"]) if row else None
+
+    def list_responses(self, opportunity_id: UUID) -> list[LeadResponse]:
+        with self.store.connect() as db:
+            rows = db.execute(
+                "SELECT payload FROM lead_responses WHERE opportunity_id = ? ORDER BY created_at ASC",
+                (str(opportunity_id),),
+            ).fetchall()
+        return [LeadResponse.model_validate_json(row["payload"]) for row in rows]
+
+    def save_revenue(self, event: RevenueEvent) -> bool:
+        with self.store.connect() as db:
+            cursor = db.execute(
+                "INSERT OR IGNORE INTO revenue_events "
+                "(id, response_id, lead_id, opportunity_id, amount_cents, currency, payload, recorded_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    str(event.id),
+                    str(event.response_id) if event.response_id else None,
+                    str(event.lead_id),
+                    str(event.opportunity_id),
+                    event.amount_cents,
+                    event.currency,
+                    event.model_dump_json(),
+                    event.recorded_at.isoformat(),
+                ),
+            )
+            return cursor.rowcount > 0
+
+    def get_revenue_for_response(self, response_id: UUID) -> RevenueEvent | None:
+        with self.store.connect() as db:
+            row = db.execute(
+                "SELECT payload FROM revenue_events WHERE response_id = ?", (str(response_id),)
+            ).fetchone()
+        return RevenueEvent.model_validate_json(row["payload"]) if row else None
+
+    def list_revenue(self, opportunity_id: UUID | None = None) -> list[RevenueEvent]:
+        with self.store.connect() as db:
+            if opportunity_id is None:
+                rows = db.execute(
+                    "SELECT payload FROM revenue_events ORDER BY recorded_at ASC"
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    "SELECT payload FROM revenue_events WHERE opportunity_id = ? "
+                    "ORDER BY recorded_at ASC",
+                    (str(opportunity_id),),
+                ).fetchall()
+        return [RevenueEvent.model_validate_json(row["payload"]) for row in rows]
 
     def suppress(self, identity_key: str, reason: str) -> None:
         with self.store.connect() as db:
