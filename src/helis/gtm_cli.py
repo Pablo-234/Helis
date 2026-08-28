@@ -10,8 +10,13 @@ from rich.table import Table
 from helis.budget import CycleBudget
 from helis.contact_gateway import ApprovedContactGateway
 from helis.engine import HelisEngine
+from helis.gtm_channel_experiment import (
+    GTMChannelExperimentManager,
+    GTMChannelExperimentStore,
+)
 from helis.gtm_discovery import GTMDiscoveryMachine
-from helis.gtm_domain import LeadResponse
+from helis.gtm_domain import LeadResponse, lead_contact_options
+from helis.gtm_experiment import GTMExperimentManager
 from helis.gtm_experiment_store import GTMExperimentStore
 from helis.gtm_outreach import GTMContactPolicy, OutreachError, OutreachManager
 from helis.gtm_store import GTMStore, lead_identity
@@ -49,21 +54,32 @@ def discover(
     if gateway is None:
         raise typer.BadParameter("HELIS_PROSPECT_GATEWAY_URL is not configured")
     helis = _engine(db)
+    provider = OpenAICompatibleProvider.from_env()
     budget = CycleBudget(
         max_model_calls=max_calls,
         max_tokens=max_tokens,
         max_cost_cents=max_cost_cents,
     )
+    experiments = GTMExperimentManager(helis, provider, budget)
+    channels = GTMChannelExperimentManager(helis)
     report = GTMDiscoveryMachine(
         helis,
-        OpenAICompatibleProvider.from_env(),
+        provider,
         budget,
         gateway,
+        experiment_manager=experiments,
+        channel_experiment_manager=channels,
     ).tick(UUID(opportunity_id) if opportunity_id else None)
     console.print(
         f"gtm: venture={report.opportunity_id or '-'} queries={report.queries_planned} "
         f"seen={report.candidates_seen} added={report.leads_added} "
         f"qualified={report.leads_qualified} drafts={report.drafts_created}"
+    )
+    console.print(
+        f"experiments: offer={report.experiment_id or '-'} "
+        f"offer_assignments={report.experiment_assignments} "
+        f"channel={report.channel_experiment_id or '-'} "
+        f"channel_assignments={report.channel_experiment_assignments}"
     )
     console.print(
         f"usage: calls={budget.model_calls}/{budget.max_model_calls} "
@@ -74,13 +90,14 @@ def discover(
 @app.command()
 def leads(opportunity_id: str, db: Path = Path("helis.db")) -> None:
     state = GTMStore(_engine(db).store)
-    table = Table("Stage", "Fit", "Organization", "Channel", "Endpoint", "Lead")
+    table = Table("Stage", "Fit", "Organization", "Channels", "Primary endpoint", "Lead")
     for lead in state.list_leads(UUID(opportunity_id)):
+        channels = ",".join(sorted({item.channel.value for item in lead_contact_options(lead)})) or "-"
         table.add_row(
             lead.stage.value,
             f"{lead.fit_score:.1f}",
             lead.organization,
-            lead.channel.value,
+            channels,
             lead.contact_endpoint or "-",
             str(lead.id),
         )
@@ -90,14 +107,24 @@ def leads(opportunity_id: str, db: Path = Path("helis.db")) -> None:
 @app.command()
 def drafts(opportunity_id: str, db: Path = Path("helis.db")) -> None:
     state = GTMStore(_engine(db).store)
-    table = Table("Organization", "Channel", "Subject", "Experiment arm", "Draft")
+    table = Table(
+        "Organization",
+        "Channel",
+        "Endpoint",
+        "Subject",
+        "Offer arm",
+        "Channel arm",
+        "Draft",
+    )
     for draft in state.list_drafts(UUID(opportunity_id)):
         lead = state.get_lead(draft.lead_id)
         table.add_row(
             lead.organization if lead else "?",
             draft.channel.value,
+            draft.contact_endpoint or "-",
             draft.subject or "-",
             draft.experiment_arm_key or "-",
+            draft.channel_experiment_arm_key or "-",
             str(draft.id),
         )
     console.print(table)
@@ -128,6 +155,28 @@ def experiments(opportunity_id: str, db: Path = Path("helis.db")) -> None:
     console.print(table)
     if not items:
         console.print("[yellow]no GTM experiments for this venture[/]")
+
+
+@app.command("channel-experiments")
+def channel_experiments(opportunity_id: str, db: Path = Path("helis.db")) -> None:
+    """Show persisted acquisition-channel experiments without model/network calls."""
+    engine = _engine(db)
+    state = GTMChannelExperimentStore(engine)
+    items = state.list(UUID(opportunity_id))
+    table = Table("Status", "Arm", "Channel", "Winner", "Conclusion", "Experiment")
+    for experiment in items:
+        for arm in experiment.arms:
+            table.add_row(
+                experiment.status.value,
+                arm.key,
+                arm.channel.value,
+                experiment.winner_arm_key or "-",
+                experiment.conclusion or "-",
+                str(experiment.id),
+            )
+    console.print(table)
+    if not items:
+        console.print("[yellow]no channel experiments for this venture[/]")
 
 
 @app.command()

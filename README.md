@@ -51,14 +51,19 @@ HELIS can:
 - perform one bounded automatic repair attempt by default,
 - hash-lock reviewed preview bytes before approved publication,
 - discover B2B prospects through evidence-bound public signals,
+- persist multiple public contact options for a lead while preserving the legacy primary endpoint,
 - qualify leads and draft first-contact outreach without fabricated personalization,
 - enforce tiny contact batches, identity limits, suppression/opt-out state and run-scoped approval,
 - automatically dispatch only outreach runs that were already explicitly approved,
 - automatically plan one bounded offer/pricing A/B experiment after real GTM feedback exists,
-- assign control/variant arms deterministically without increasing the existing contact cap,
+- assign control/variant commercial arms deterministically without increasing the existing contact cap,
 - enforce explicit pricing-arm bounds and per-arm assignment/sample caps,
-- hash-lock the selected experiment arm into the approved outreach draft,
-- calculate experiment outcomes and winners deterministically from persisted replies, meetings, sales and revenue,
+- hash-lock the selected commercial experiment arm into the approved outreach draft,
+- automatically plan a bounded acquisition-channel experiment when a comparable dual-channel lead pool exists,
+- assign public contact channels deterministically without a model call or extra outreach volume,
+- hash-lock the exact selected channel and public endpoint into the approved draft,
+- revalidate that endpoint immediately before dispatch and expose only that one endpoint to the contact gateway,
+- calculate commercial and channel experiment winners deterministically from persisted replies, meetings, sales and revenue,
 - ingest GTM responses, attribute revenue and derive deterministic **continue / pause / kill / scale** decisions,
 - estimate per-venture economics with currency-separated revenue/cost accounting,
 - allocate shared cash/model capacity across competing ventures,
@@ -118,6 +123,7 @@ GTM experiment state can be inspected without model or network calls:
 
 ```bash
 helis-gtm experiments <OPPORTUNITY_ID>
+helis-gtm channel-experiments <OPPORTUNITY_ID>
 ```
 
 ## Approved external gateways
@@ -127,7 +133,7 @@ HELIS never lets a model choose transport destinations or credentials. External 
 - validation gateway — approved interview/pricing validation transport,
 - preview gateway — approved publication of the exact reviewed artifact hash,
 - prospect gateway — read-only B2B prospect discovery,
-- contact gateway — one already-approved first contact,
+- contact gateway — one already-approved first contact to the exact approved public endpoint,
 - self-evaluation gateway — isolated exact baseline-vs-candidate evaluation,
 - self-branch gateway — writes only an explicitly approved candidate to its deterministic review branch,
 - self-CI gateway — read-only exact review-branch CI attestation,
@@ -161,15 +167,15 @@ completed
 advance / continue / pivot / kill
 ```
 
-A GTM first contact similarly requires a persisted approved outreach run before the contact gateway can be called. The scheduler can prepare work for approval, but cannot grant that approval to itself. Offer/pricing experiments operate **inside** that same approval and contact-cap boundary: the experiment chooses which bounded offer arm is drafted, but it never grants send authority or increases outreach volume.
+A GTM first contact similarly requires a persisted approved outreach run before the contact gateway can be called. The scheduler can prepare work for approval, but cannot grant that approval to itself. Offer/pricing and channel experiments operate **inside** that same approval and contact-cap boundary: experiments may choose a bounded commercial arm or one already-public contact endpoint, but they never grant send authority, increase outreach volume, or give the gateway alternative destinations after approval.
 
 Gateway destinations must use HTTPS. Plain HTTP is accepted only for explicit localhost development opt-ins.
 
 ## Decision safety
 
-The model can summarize evidence, propose tests, generate bounded artifacts, draft outreach and propose a tightly bounded control/variant offer experiment. It does **not** own final venture transitions or authorization boundaries.
+The model can summarize evidence, propose tests, generate bounded artifacts, draft outreach and propose a tightly bounded control/variant commercial experiment. It does **not** own final venture transitions or authorization boundaries. Channel experiment planning does not require a model at all.
 
-Validation decisions are deterministic outside the model. GTM decisions are derived from persisted outcomes and revenue rather than model preference. GTM experiment arm assignment, sample caps, outcome scoring and winner selection are also deterministic outside the model. Portfolio allocation then uses measured signals and explicit economics to assign only remaining cash/model capacity.
+Validation decisions are deterministic outside the model. GTM decisions are derived from persisted outcomes and revenue rather than model preference. Commercial and channel experiment assignment, sample caps, outcome scoring and winner selection are deterministic outside the model. Portfolio allocation then uses measured signals and explicit economics to assign only remaining cash/model capacity.
 
 Self-improvement is also split across independent trust boundaries: proposal → isolated candidate → immutable evaluation → explicit branch approval → exact green CI → separate merge approval → fresh matching CI → base-locked merge. A stale approval, changed branch head or advanced default branch blocks the merge rather than rebasing or silently applying old code.
 
@@ -186,15 +192,15 @@ Self-improvement is also split across independent trust boundaries: proposal →
 9. **Durable state beats resident agents** — HELIS can reconstruct its control loops after a crash or reboot.
 10. **Discovery and execution fail independently** — source scanning and portfolio work use separate leases.
 11. **Experiment inside existing authority** — A/B testing cannot expand contact volume or bypass approval gates.
+12. **Approve the destination, not just the message** — the exact public channel and endpoint are frozen before dispatch.
 
 ## Current boundary
 
-HELIS now covers the constrained autonomous path from recurring market observation through discovery, validation, MVP artifact building, bounded B2B GTM, bounded offer/pricing experimentation, measured revenue/economics, portfolio scheduling/reallocation and controlled self-improvement.
+HELIS now covers the constrained autonomous path from recurring market observation through discovery, validation, MVP artifact building, bounded B2B GTM, bounded offer/pricing and acquisition-channel experimentation, measured revenue/economics, portfolio scheduling/reallocation and controlled self-improvement.
 
 Still intentionally separate or incomplete:
 
-- native direct email/SMS/social channel implementations,
-- automatic multi-channel acquisition experimentation,
+- native direct email/SMS/social transport implementations beyond the narrow operator-configured contact gateway,
 - general arbitrary executable-code builders,
 - direct payment authority,
 - silent production deployment.

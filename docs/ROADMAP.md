@@ -78,13 +78,14 @@ Exit criterion: met for constrained MVP artifacts. A validated venture can becom
 - [x] bounded automatic offer A/B experiments inside the existing contact cap
 - [x] automatic pricing experiments with explicit bounded price arms
 - [x] deterministic arm assignment, sample caps and winner calculation from real outcomes
-- [ ] automatic multi-channel acquisition experiments
+- [x] automatic multi-channel acquisition experiments over comparable dual-channel leads
+- [x] multiple persisted public contact options with exact selected endpoint approval hash-lock
 - [x] response/result ingestion
 - [x] revenue attribution
 - [x] deterministic continue / pause / kill / scale rules over measured GTM outcomes
 - [x] crash-safe response → GTM experiment/decision refresh before portfolio allocation
 
-Exit criterion: core path met. A venture can progress from reviewed preview to bounded first contact, measured response and attributed first revenue, then test a small offer/pricing variation without increasing contact volume and receive evidence-based GTM/portfolio decisions. Automatic experimentation across different acquisition channels remains a later enhancement.
+Exit criterion: met for bounded B2B go-to-market. A venture can progress from reviewed preview to approved first contact, measured response and attributed revenue, then test bounded offer/pricing and public contact-channel variations without increasing contact volume. Commercial and channel assignments, sample caps, exact selected endpoints and winners are persisted and deterministic outside the model.
 
 ## Phase 4 — Portfolio / capital allocator
 

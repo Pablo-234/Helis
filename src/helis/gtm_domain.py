@@ -46,6 +46,11 @@ class ProspectQuery(BaseModel):
     created_at: datetime = Field(default_factory=utc_now)
 
 
+class LeadContactOption(BaseModel):
+    channel: LeadChannel
+    endpoint: str = Field(min_length=3, max_length=1500)
+
+
 class Lead(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     opportunity_id: UUID
@@ -53,11 +58,39 @@ class Lead(BaseModel):
     website: str | None = Field(default=None, max_length=1500)
     contact_endpoint: str | None = Field(default=None, max_length=1500)
     channel: LeadChannel = LeadChannel.OTHER
+    contact_options: list[LeadContactOption] = Field(default_factory=list, max_length=8)
     evidence: list[ProspectEvidence] = Field(min_length=1, max_length=12)
     fit_score: float = Field(default=0, ge=0, le=10)
     fit_rationale: list[str] = Field(default_factory=list, max_length=8)
     stage: LeadStage = LeadStage.DISCOVERED
     created_at: datetime = Field(default_factory=utc_now)
+
+    @model_validator(mode="after")
+    def validate_contact_options(self) -> Lead:
+        seen: set[tuple[LeadChannel, str]] = set()
+        for option in self.contact_options:
+            key = (option.channel, option.endpoint.strip())
+            if key in seen:
+                raise ValueError("lead contact_options must be unique")
+            seen.add(key)
+        return self
+
+
+def lead_contact_options(lead: Lead) -> list[LeadContactOption]:
+    """Return the legacy primary endpoint plus explicit alternatives, de-duplicated in order."""
+    options: list[LeadContactOption] = []
+    seen: set[tuple[LeadChannel, str]] = set()
+    if lead.contact_endpoint:
+        primary = LeadContactOption(channel=lead.channel, endpoint=lead.contact_endpoint)
+        options.append(primary)
+        seen.add((primary.channel, primary.endpoint.strip()))
+    for option in lead.contact_options:
+        key = (option.channel, option.endpoint.strip())
+        if key in seen:
+            continue
+        options.append(option)
+        seen.add(key)
+    return options
 
 
 class OutreachDraft(BaseModel):
@@ -65,17 +98,26 @@ class OutreachDraft(BaseModel):
     lead_id: UUID
     opportunity_id: UUID
     channel: LeadChannel
+    contact_endpoint: str | None = Field(default=None, max_length=1500)
     subject: str | None = Field(default=None, max_length=200)
     body: str = Field(min_length=20, max_length=4000)
     evidence_ids: list[UUID] = Field(default_factory=list, max_length=12)
     experiment_id: UUID | None = None
     experiment_arm_key: str | None = Field(default=None, max_length=31)
+    channel_experiment_id: UUID | None = None
+    channel_experiment_arm_key: str | None = Field(default=None, max_length=31)
     created_at: datetime = Field(default_factory=utc_now)
 
     @model_validator(mode="after")
     def validate_experiment_binding(self) -> OutreachDraft:
         if (self.experiment_id is None) != (self.experiment_arm_key is None):
             raise ValueError("experiment_id and experiment_arm_key must be set together")
+        if (self.channel_experiment_id is None) != (self.channel_experiment_arm_key is None):
+            raise ValueError(
+                "channel_experiment_id and channel_experiment_arm_key must be set together"
+            )
+        if self.channel_experiment_id is not None and not self.contact_endpoint:
+            raise ValueError("channel experiment drafts require an explicit contact_endpoint")
         return self
 
 
