@@ -109,17 +109,21 @@ class SchedulerStore:
 class PortfolioScheduler:
     """Selects bounded venture work from the latest active portfolio envelopes."""
 
-    _ACTIONABLE_STAGES = {
-        VentureStage.EVALUATED,
-        VentureStage.VALIDATING,
-        VentureStage.VALIDATED,
-        VentureStage.BUILDING,
-    }
-    _BLOCKING_VALIDATION_STATUSES = {
-        ExperimentRunStatus.WAITING_APPROVAL,
-        ExperimentRunStatus.WAITING_RESULT,
-        ExperimentRunStatus.RUNNING,
-    }
+    _ACTIONABLE_STAGES = frozenset(
+        {
+            VentureStage.EVALUATED,
+            VentureStage.VALIDATING,
+            VentureStage.VALIDATED,
+            VentureStage.BUILDING,
+        }
+    )
+    _BLOCKING_VALIDATION_STATUSES = frozenset(
+        {
+            ExperimentRunStatus.WAITING_APPROVAL,
+            ExperimentRunStatus.WAITING_RESULT,
+            ExperimentRunStatus.RUNNING,
+        }
+    )
 
     def __init__(
         self,
