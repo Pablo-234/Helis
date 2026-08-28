@@ -10,6 +10,9 @@ from rich.table import Table
 from helis.budget import CycleBudget
 from helis.engine import HelisEngine
 from helis.model_provider import OpenAICompatibleProvider
+from helis.self_improvement_branch_gateway import ApprovedSelfImprovementBranchGateway
+from helis.self_improvement_branch_manager import SelfImprovementBranchManager
+from helis.self_improvement_branch_store import SelfImprovementBranchStore
 from helis.self_improvement_gateway import ApprovedSelfImprovementEvaluationGateway
 from helis.self_improvement_machine import SelfImprovementMachine
 from helis.self_improvement_planner import ImprovementSignalCollector, NoImprovementSignal
@@ -39,6 +42,14 @@ def _machine(
         repo_root=repo_root,
         sandbox_root=sandbox_root,
         evaluation_gateway=ApprovedSelfImprovementEvaluationGateway.from_env(),
+    )
+
+
+def _branch_manager(db: Path, sandbox_root: Path) -> SelfImprovementBranchManager:
+    return SelfImprovementBranchManager(
+        _engine(db),
+        ApprovedSelfImprovementBranchGateway.from_env(),
+        sandbox_root=str(sandbox_root),
     )
 
 
@@ -129,6 +140,73 @@ def evaluate(
         console.print(f"proposal status={proposal.status.value}; [bold]merge command does not exist[/]")
 
 
+@app.command("prepare-branch")
+def prepare_branch(
+    proposal_id: str,
+    base_revision: str,
+    sandbox_root: Path = Path(".helis/self-improvement"),
+    db: Path = Path("helis.db"),
+) -> None:
+    """Prepare one exact candidate/base-SHA review-branch run; approval is still required."""
+    run = _branch_manager(db, sandbox_root).prepare(
+        UUID(proposal_id),
+        base_revision=base_revision,
+    )
+    console.print(
+        f"branch-run={run.id} status={run.status.value} branch={run.branch_name} "
+        f"base={run.base_revision} candidate={run.candidate_hash}"
+    )
+    console.print("[yellow]explicit approve-branch is required before any branch gateway call[/]")
+
+
+@app.command("approve-branch")
+def approve_branch(
+    run_id: str,
+    sandbox_root: Path = Path(".helis/self-improvement"),
+    db: Path = Path("helis.db"),
+) -> None:
+    """Approve exactly one persisted candidate/base-SHA branch materialization run."""
+    run = _branch_manager(db, sandbox_root).approve(UUID(run_id))
+    console.print(
+        f"branch-run={run.id} status={run.status.value} approved={run.approval_granted} "
+        f"branch={run.branch_name}"
+    )
+
+
+@app.command("materialize-branch")
+def materialize_branch(
+    run_id: str,
+    sandbox_root: Path = Path(".helis/self-improvement"),
+    db: Path = Path("helis.db"),
+) -> None:
+    """Create the approved review branch through the configured gateway; never merge it."""
+    if ApprovedSelfImprovementBranchGateway.from_env() is None:
+        raise typer.BadParameter("HELIS_SELF_BRANCH_GATEWAY_URL is not configured")
+    run = _branch_manager(db, sandbox_root).materialize(UUID(run_id))
+    console.print(
+        f"branch-run={run.id} status={run.status.value} branch={run.branch_name} "
+        f"external_ref={run.external_ref or '-'}"
+    )
+    console.print("[bold]review branch only; merge command does not exist[/]")
+
+
+@app.command("branch-status")
+def branch_status(db: Path = Path("helis.db")) -> None:
+    """Show review-branch materialization runs and their approval state."""
+    runs = SelfImprovementBranchStore(_engine(db).store).list()
+    table = Table("Status", "Approved", "Base", "Branch", "Candidate", "Run")
+    for run in runs:
+        table.add_row(
+            run.status.value,
+            str(run.approval_granted),
+            run.base_revision[:12] + "…",
+            run.branch_name,
+            run.candidate_hash[:12] + "…",
+            str(run.id),
+        )
+    console.print(table)
+
+
 @app.command()
 def status(db: Path = Path("helis.db")) -> None:
     """Show persisted proposals, candidates and evaluation outcome."""
@@ -157,6 +235,16 @@ def gateway_status() -> None:
         console.print("self-eval gateway: [yellow]not configured[/]")
     else:
         console.print(f"self-eval gateway: [green]{gateway.safe_destination}[/]")
+
+
+@app.command("branch-gateway-status")
+def branch_gateway_status() -> None:
+    """Show review-branch gateway configuration without making a request."""
+    gateway = ApprovedSelfImprovementBranchGateway.from_env()
+    if gateway is None:
+        console.print("self-branch gateway: [yellow]not configured[/]")
+    else:
+        console.print(f"self-branch gateway: [green]{gateway.safe_destination}[/]")
 
 
 if __name__ == "__main__":

@@ -117,7 +117,8 @@ Exit criterion: met for the bounded constrained venture path. HELIS can rank com
 - [x] candidate cannot add imports, dependencies, tests or touch authority/guardrail files
 - [x] no-signal cycles make zero model calls
 - [x] evaluation requires measurable higher-is-better improvement with no reported regressions
-- [ ] explicit SELF_MODIFY approval + reviewed branch materialization
-- [ ] merge only after measurable improvement, green CI and policy approval
+- [x] explicit SELF_MODIFY run approval before reviewed branch materialization
+- [x] branch gateway is bound to exact base commit, candidate hash and baseline file hashes
+- [ ] merge only after measurable improvement, green branch CI and separate policy approval
 
-No silent live self-rewrite. The current Phase-5 boundary ends at `WAITING_MERGE_APPROVAL`; no merge/apply operation exists yet.
+No silent live self-rewrite. The current Phase-5 boundary can create an explicitly approved review branch for an accepted candidate, but no merge/apply-to-main operation exists.
