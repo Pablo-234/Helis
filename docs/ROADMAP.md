@@ -119,6 +119,9 @@ Exit criterion: met for the bounded constrained venture path. HELIS can rank com
 - [x] evaluation requires measurable higher-is-better improvement with no reported regressions
 - [x] explicit SELF_MODIFY run approval before reviewed branch materialization
 - [x] branch gateway is bound to exact base commit, candidate hash and baseline file hashes
-- [ ] merge only after measurable improvement, green branch CI and separate policy approval
+- [x] green review-branch CI must attest exact candidate files, branch head, Ruff and pytest
+- [x] final merge requires a second explicit SELF_MODIFY approval
+- [x] fresh pre-merge CI must match the approved stable attestation
+- [x] merge is blocked if the review branch changes or the default branch advanced from the approved base
 
-No silent live self-rewrite. The current Phase-5 boundary can create an explicitly approved review branch for an accepted candidate, but no merge/apply-to-main operation exists.
+Exit criterion: core path met. HELIS may propose and evaluate a bounded low-authority patch, materialize the exact accepted bytes to an explicitly approved review branch, require green CI, require a second merge approval, re-attest the exact branch immediately before merge, and merge only while the default branch still equals the approved base revision. No silent live self-rewrite, rebase, force-push or approval reuse is permitted.
