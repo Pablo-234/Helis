@@ -83,17 +83,26 @@ class ApprovedContactGateway:
         return f"{parsed.scheme}://{parsed.hostname}{port}{parsed.path}"
 
     def send(self, run: OutreachRun, lead: Lead, draft: OutreachDraft) -> ContactGatewayAck:
+        effective_lead = lead
+        if draft.contact_endpoint is not None:
+            effective_lead = lead.model_copy(
+                update={
+                    "contact_endpoint": draft.contact_endpoint,
+                    "channel": draft.channel,
+                }
+            )
         payload = json.dumps(
             {
                 "contract_version": 1,
                 "run": run.model_dump(mode="json"),
-                "lead": lead.model_dump(mode="json"),
+                "lead": effective_lead.model_dump(mode="json"),
                 "draft": draft.model_dump(mode="json"),
                 "constraints": {
                     "first_contact_only": True,
                     "no_automatic_followup": True,
                     "honor_opt_out": True,
                     "one_run_only": True,
+                    "selected_endpoint_from_approved_draft": draft.contact_endpoint is not None,
                 },
             },
             ensure_ascii=False,
