@@ -31,8 +31,11 @@ Propose one SMALL, LOW-RISK improvement to HELIS itself from the supplied object
 You are planning only; do not write code. Choose at most two target files and ONLY from allowed_targets.
 Do not request changes to tests, policy, gateways, credentials, cash/accounting, deployment, CI,
 resource envelopes, or self-improvement guardrails. The acceptance criteria must be measurable.
-Choose a metric that an isolated evaluator can compare numerically between baseline and candidate.
-Avoid broad refactors. Prefer a narrow bug fix, deterministic quality improvement, or efficiency gain.
+Choose a numeric metric where HIGHER IS ALWAYS BETTER, because Phase 5 v1 only supports
+higher-is-better comparisons. Good examples are accuracy_score, pass_rate, match_quality_score,
+or throughput. Do NOT choose raw latency, duration, error count, cost, memory use, or any metric
+where lower would be better. Avoid broad refactors. Prefer a narrow bug fix, deterministic quality
+improvement, or efficiency gain represented by a higher-is-better score.
 Return JSON only with: objective, rationale, target_files, acceptance_criteria, metric_name,
 minimum_improvement.
 """
@@ -124,6 +127,7 @@ class SelfImprovementPlanner:
                         "tests_are_immutable": True,
                         "live_checkout_writes_forbidden": True,
                         "merge_not_available": True,
+                        "metric_direction": "higher_is_better",
                     },
                 },
                 ensure_ascii=False,
