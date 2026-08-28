@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import ClassVar
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -21,7 +22,7 @@ class SchedulerBackoff(BaseModel):
 class AdaptiveBackoffPolicy:
     """Deterministic cooldowns for repeated venture no-op outcomes."""
 
-    _BASE_SECONDS = {
+    _BASE_SECONDS: ClassVar[dict[str, int]] = {
         "approval_backlog": 15 * 60,
         "result_backlog": 30 * 60,
         "contact_gateway_missing": 60 * 60,
@@ -29,7 +30,7 @@ class AdaptiveBackoffPolicy:
         "no_model_capacity": 60 * 60,
         "market_scan_no_new_signal": 30 * 60,
     }
-    _MAX_SECONDS = {
+    _MAX_SECONDS: ClassVar[dict[str, int]] = {
         "approval_backlog": 6 * 60 * 60,
         "result_backlog": 12 * 60 * 60,
         "contact_gateway_missing": 24 * 60 * 60,
