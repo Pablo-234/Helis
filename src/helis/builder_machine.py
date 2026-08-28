@@ -213,6 +213,15 @@ class BuilderMachine:
                     repair_attempted=repair_attempted,
                 )
 
+            run = run.model_copy(
+                update={
+                    "workspace": str(workspace),
+                    "file_paths": [item.path for item in bundle.files],
+                    "updated_at": utc_now(),
+                }
+            )
+            self.engine.record_build_run(run, event_type="build.workspace_materialized")
+
             if definition.requires_execution:
                 assert self.execution_backend is not None
                 try:
@@ -253,8 +262,6 @@ class BuilderMachine:
             run = run.model_copy(
                 update={
                     "status": BuildStatus.VERIFIED,
-                    "workspace": str(workspace),
-                    "file_paths": [item.path for item in bundle.files],
                     "updated_at": utc_now(),
                 }
             )
