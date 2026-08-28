@@ -145,7 +145,10 @@ class DockerBuildExecutionBackend:
             return BuildExecutionResult(
                 passed=False,
                 return_code=None,
-                details=f"sandbox timed out after {self.timeout_seconds}s: {self._clip(exc.stderr or '')}",
+                details=(
+                    f"sandbox timed out after {self.timeout_seconds}s: "
+                    f"{self._clip(exc.stderr or '')}"
+                ),
             )
         except OSError as exc:
             raise BuildExecutionError(f"sandbox runtime failed: {type(exc).__name__}: {exc}") from exc
@@ -161,7 +164,9 @@ class DockerBuildExecutionBackend:
         )
 
     @staticmethod
-    def _clip(value: str, limit: int = 1700) -> str:
+    def _clip(value: str | bytes, limit: int = 1700) -> str:
+        if isinstance(value, bytes):
+            value = value.decode("utf-8", errors="replace")
         normalized = value.replace("\x00", "").strip()
         if len(normalized) <= limit:
             return normalized
