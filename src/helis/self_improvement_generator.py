@@ -8,7 +8,11 @@ from pydantic import BaseModel, Field
 
 from helis.budget import CycleBudget
 from helis.model_provider import ModelProvider
-from helis.self_improvement_domain import CandidateFile, SelfImprovementCandidate, SelfImprovementProposal
+from helis.self_improvement_domain import (
+    CandidateFile,
+    SelfImprovementCandidate,
+    SelfImprovementProposal,
+)
 from helis.self_improvement_policy import SelfImprovementPolicy, UnsafeSelfImprovement
 from helis.self_improvement_sandbox import SelfImprovementSandbox
 
