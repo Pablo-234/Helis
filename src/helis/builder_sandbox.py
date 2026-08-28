@@ -78,7 +78,12 @@ def _safe_path(path: str) -> bool:
     if "\\" in path:
         return False
     parsed = PurePosixPath(path)
-    return bool(path) and not parsed.is_absolute() and ".." not in parsed.parts and "." not in parsed.parts
+    return (
+        bool(path)
+        and not parsed.is_absolute()
+        and ".." not in parsed.parts
+        and "." not in parsed.parts
+    )
 
 
 def _check(name: str, passed: bool, details: str) -> BuildCheck:
@@ -139,13 +144,33 @@ def _literal_assignment(node: ast.Assign | ast.AnnAssign) -> bool:
     return True
 
 
-def _python_top_level_safe(tree: ast.Module) -> bool:
+def _function_definition_safe(node: ast.FunctionDef) -> bool:
+    if node.decorator_list:
+        return False
+    defaults = [*node.args.defaults, *(item for item in node.args.kw_defaults if item is not None)]
+    for default in defaults:
+        try:
+            ast.literal_eval(default)
+        except (ValueError, TypeError):
+            return False
+    return True
+
+
+def _python_top_level_safe(tree: ast.Module | None) -> bool:
+    if tree is None:
+        return False
     for node in tree.body:
-        if isinstance(node, (ast.Import, ast.ImportFrom, ast.FunctionDef, ast.ClassDef)):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            continue
+        if isinstance(node, ast.FunctionDef) and _function_definition_safe(node):
             continue
         if isinstance(node, (ast.Assign, ast.AnnAssign)) and _literal_assignment(node):
             continue
-        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+        if (
+            isinstance(node, ast.Expr)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        ):
             continue
         return False
     return True
@@ -159,7 +184,9 @@ def _python_entrypoint_ok(tree: ast.Module | None) -> bool:
             continue
         args = node.args
         return (
-            len(args.posonlyargs) + len(args.args) == 1
+            _function_definition_safe(node)
+            and len(args.posonlyargs) + len(args.args) == 1
+            and not args.defaults
             and not args.vararg
             and not args.kwarg
             and not args.kwonlyargs
@@ -167,20 +194,30 @@ def _python_entrypoint_ok(tree: ast.Module | None) -> bool:
     return False
 
 
-def _python_test_contract(tree: ast.Module | None) -> tuple[bool, bool]:
+def _python_test_contract(tree: ast.Module | None) -> tuple[int, bool, bool]:
     if tree is None:
-        return False, False
-    has_test = False
+        return 0, False, False
+    test_count = 0
     calls_handle = False
+    has_assertion = False
     for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test"):
-            has_test = True
-        if isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Name) and node.func.id == "handle":
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name.startswith("test")
+        ):
+            test_count += 1
+        if isinstance(node, ast.Assert):
+            has_assertion = True
+        if not isinstance(node, ast.Call):
+            continue
+        if isinstance(node.func, ast.Name) and node.func.id == "handle":
+            calls_handle = True
+        elif isinstance(node.func, ast.Attribute):
+            if node.func.attr == "handle":
                 calls_handle = True
-            elif isinstance(node.func, ast.Attribute) and node.func.attr == "handle":
-                calls_handle = True
-    return has_test, calls_handle
+            if node.func.attr.startswith("assert"):
+                has_assertion = True
+    return test_count, calls_handle, has_assertion
 
 
 class BuildVerifier:
@@ -229,7 +266,14 @@ class BuildVerifier:
         ]
 
         if spec.template == BuildTemplate.STATIC_WEB:
-            index = next((item.content.lower() for item in bundle.files if item.path == "index.html"), "")
+            index = next(
+                (
+                    item.content.lower()
+                    for item in bundle.files
+                    if item.path == "index.html"
+                ),
+                "",
+            )
             active_external = bool(
                 re.search(r"<(script|iframe)\b", index)
                 or re.search(r"\b(action|src)\s*=\s*['\"]https?://", index)
@@ -252,7 +296,8 @@ class BuildVerifier:
         if spec.template == BuildTemplate.CONCIERGE_OPS:
             by_path = {item.path: item.content for item in bundle.files}
             substantive = all(
-                len(by_path.get(path, "").strip()) >= 80 for path in definition.required_paths
+                len(by_path.get(path, "").strip()) >= 80
+                for path in definition.required_paths
             )
             checks.append(
                 _check(
@@ -266,43 +311,65 @@ class BuildVerifier:
             trees, syntax_errors = _python_trees(bundle)
             import_violations = _python_import_violations(trees)
             dangerous = _python_dangerous_nodes(trees)
-            tests_present, tests_exercise = _python_test_contract(trees.get("test_app.py"))
+            test_count, tests_exercise, tests_assert = _python_test_contract(
+                trees.get("test_app.py")
+            )
             checks.extend(
                 [
                     _check(
                         "python_syntax",
                         not syntax_errors and {"app.py", "test_app.py"} <= set(trees),
-                        "; ".join(syntax_errors) if syntax_errors else "Python files parse successfully",
+                        (
+                            "; ".join(syntax_errors)
+                            if syntax_errors
+                            else "Python files parse successfully"
+                        ),
                     ),
                     _check(
                         "python_import_allowlist",
                         not import_violations,
-                        "; ".join(import_violations) if import_violations else "imports are allowlisted",
+                        (
+                            "; ".join(import_violations)
+                            if import_violations
+                            else "imports are allowlisted"
+                        ),
                     ),
                     _check(
                         "python_no_dangerous_introspection",
                         not dangerous,
-                        "; ".join(dangerous) if dangerous else "no forbidden calls/names/attributes",
+                        (
+                            "; ".join(dangerous)
+                            if dangerous
+                            else "no forbidden calls/names/attributes"
+                        ),
                     ),
                     _check(
                         "python_no_top_level_side_effects",
-                        _python_top_level_safe(trees.get("app.py", ast.Module(body=[], type_ignores=[]))),
-                        "app.py top level may contain only imports, definitions and literal constants",
+                        _python_top_level_safe(trees.get("app.py")),
+                        (
+                            "app.py top level may contain only imports, undecorated "
+                            "functions and literal constants"
+                        ),
                     ),
                     _check(
                         "python_entrypoint_contract",
                         _python_entrypoint_ok(trees.get("app.py")),
-                        "app.py must define handle with exactly one positional request argument",
+                        "app.py must define handle with exactly one request argument",
                     ),
                     _check(
                         "python_tests_present",
-                        tests_present,
-                        "test_app.py must contain at least one test_* function or method",
+                        test_count >= 2,
+                        f"test_app.py must contain at least two test cases; found={test_count}",
                     ),
                     _check(
                         "python_tests_exercise_entrypoint",
                         tests_exercise,
                         "test_app.py must directly call handle",
+                    ),
+                    _check(
+                        "python_tests_assert_behavior",
+                        tests_assert,
+                        "test_app.py must make at least one behavioral assertion",
                     ),
                 ]
             )
