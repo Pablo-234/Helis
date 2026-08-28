@@ -160,7 +160,7 @@ def _attestation(
 
 
 def test_merge_requires_green_ci_second_approval_and_is_idempotent(tmp_path) -> None:
-    engine, sandbox_root, _, candidate, branch_run = _materialized_bundle(tmp_path)
+    engine, sandbox_root, _, _, branch_run = _materialized_bundle(tmp_path)
     ci_gateway = FakeCIGateway()
     merge_gateway = FakeMergeGateway()
     manager = SelfImprovementMergeManager(
