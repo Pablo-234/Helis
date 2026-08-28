@@ -9,8 +9,7 @@ from pydantic import BaseModel, Field
 from helis.cash_reservation import CashReservationManager, CashReservationStatus
 from helis.domain import AuditEvent, utc_now
 from helis.engine import HelisEngine
-from helis.model_provider import ModelProvider
-from helis.portfolio import PortfolioAllocator, PortfolioBudget, PortfolioStore
+from helis.portfolio import PortfolioAllocator, PortfolioPlan, PortfolioStore
 from helis.portfolio_scheduler import PortfolioScheduler, SchedulerTickReport
 from helis.resource_envelope import ResourceEnvelope, ResourceEnvelopeManager
 
@@ -87,7 +86,7 @@ class PortfolioReallocationStore:
 
 
 class PortfolioReallocator:
-    """Rolls remaining treasury into a new plan without restoring already-consumed resources."""
+    """Rolls remaining treasury into a new plan without restoring consumed resources."""
 
     def __init__(self, engine: HelisEngine) -> None:
         self.engine = engine
@@ -112,6 +111,15 @@ class PortfolioReallocator:
             item for item in self.envelopes.list() if item.plan_id == previous.id
         ]
         if not plan_envelopes:
+            if not previous.allocations:
+                return self._record(
+                    self._report(
+                        previous,
+                        disposition=ReallocationDisposition.UNCHANGED,
+                        new_plan_id=previous.id,
+                        reason="latest plan has no funded venture allocations",
+                    )
+                )
             activated = self.envelopes.activate(previous)
             return self._record(
                 self._report(
@@ -119,16 +127,20 @@ class PortfolioReallocator:
                     disposition=ReallocationDisposition.ACTIVATED_EXISTING,
                     new_plan_id=previous.id,
                     activated_envelopes=len(activated),
-                    reason="latest plan had not been activated yet",
+                    reason="latest funded plan had not been activated yet",
                 )
             )
 
         open_commitments = self._open_commitments(plan_envelopes)
+        cash_consumed = sum(item.cash_consumed_cents for item in plan_envelopes)
+        model_calls_consumed = sum(item.model_calls_consumed for item in plan_envelopes)
         if open_commitments:
             return self._record(
                 self._report(
                     previous,
                     disposition=ReallocationDisposition.DEFERRED_OPEN_COMMITMENT,
+                    cash_consumed=cash_consumed,
+                    model_calls_consumed=model_calls_consumed,
                     reason=(
                         f"{open_commitments} open cash commitment(s) must settle or release "
                         "before envelope rollover"
@@ -136,8 +148,6 @@ class PortfolioReallocator:
                 )
             )
 
-        cash_consumed = sum(item.cash_consumed_cents for item in plan_envelopes)
-        model_calls_consumed = sum(item.model_calls_consumed for item in plan_envelopes)
         remaining_cash = max(0, previous.budget.cash_cents - cash_consumed)
         remaining_calls = max(0, previous.budget.model_calls - model_calls_consumed)
         remaining_budget = previous.budget.model_copy(
@@ -182,7 +192,7 @@ class PortfolioReallocator:
 
     def _report(
         self,
-        previous,
+        previous: PortfolioPlan,
         *,
         disposition: ReallocationDisposition,
         reason: str,
@@ -236,12 +246,10 @@ class ReallocatingPortfolioControlLoop:
     def __init__(
         self,
         engine: HelisEngine,
-        provider: ModelProvider,
         scheduler: PortfolioScheduler,
     ) -> None:
         self.reallocator = PortfolioReallocator(engine)
         self.scheduler = scheduler
-        self.provider = provider
 
     def tick(self, *, max_advances: int) -> SchedulerTickReport:
         self.reallocator.reconcile()
