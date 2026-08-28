@@ -6,6 +6,7 @@ import json
 import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Annotated
 from uuid import UUID, uuid4
 
 import typer
@@ -278,8 +279,14 @@ def recover_jobs(
 
 @app.command("starter-intake")
 def starter_intake(
-    input_csv: Path | None = typer.Option(None, "--csv", help="CSV of real inquiries to process"),
-    message: str | None = typer.Option(None, help="One real inquiry to process"),
+    input_csv: Annotated[
+        Path | None,
+        typer.Option("--csv", help="CSV of real inquiries to process"),
+    ] = None,
+    message: Annotated[
+        str | None,
+        typer.Option(help="One real inquiry to process"),
+    ] = None,
     process: bool = typer.Option(True, help="Immediately process queued records"),
     max_jobs: int = typer.Option(100, min=1, max=10_000),
     workspace_root: Path = Path(".helis/ventures"),
