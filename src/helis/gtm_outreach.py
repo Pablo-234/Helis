@@ -9,6 +9,7 @@ from uuid import UUID
 from helis.contact_gateway import ContactGateway
 from helis.domain import AuditEvent, utc_now
 from helis.engine import HelisEngine
+from helis.gtm_channel_experiment import GTMChannelExperimentManager
 from helis.gtm_domain import (
     Lead,
     LeadResponse,
@@ -18,6 +19,7 @@ from helis.gtm_domain import (
     OutreachRun,
     OutreachRunStatus,
     RevenueEvent,
+    lead_contact_options,
 )
 from helis.gtm_experiment import GTMExperimentManager
 from helis.gtm_feedback import GTMFeedbackRefresher
@@ -53,10 +55,15 @@ def draft_hash(draft: OutreachDraft) -> str:
         "body": draft.body,
         "evidence_ids": [str(item) for item in draft.evidence_ids],
     }
-    # Preserve the historical hash for non-experiment drafts while locking any experiment binding.
+    # Preserve historical hashes when newer optional bindings are absent.
     if draft.experiment_id is not None:
         payload["experiment_id"] = str(draft.experiment_id)
         payload["experiment_arm_key"] = draft.experiment_arm_key
+    if draft.contact_endpoint is not None:
+        payload["contact_endpoint"] = draft.contact_endpoint
+    if draft.channel_experiment_id is not None:
+        payload["channel_experiment_id"] = str(draft.channel_experiment_id)
+        payload["channel_experiment_arm_key"] = draft.channel_experiment_arm_key
     canonical = json.dumps(
         payload,
         ensure_ascii=False,
@@ -79,6 +86,7 @@ class OutreachManager:
         self.state = GTMStore(engine.store)
         self.feedback = GTMFeedbackRefresher(engine)
         self.experiments = GTMExperimentManager(engine)
+        self.channel_experiments = GTMChannelExperimentManager(engine)
         self.gateway = gateway
         self.contact_policy = contact_policy or GTMContactPolicy()
         self.autonomy_policy = autonomy_policy or AutonomyPolicy()
@@ -91,6 +99,7 @@ class OutreachManager:
             return existing
         self._validate_venture_for_contact(lead.opportunity_id)
         self._validate_lead_for_contact(lead)
+        self._validate_draft_contact_binding(draft, lead)
 
         decision = self.autonomy_policy.evaluate(
             ActionRequest(
@@ -158,6 +167,10 @@ class OutreachManager:
         self._validate_lead_for_contact(lead)
         if draft_hash(draft) != run.draft_hash:
             return self._block(run, "draft changed after approval")
+        try:
+            self._validate_draft_contact_binding(draft, lead)
+        except OutreachError as exc:
+            return self._block(run, str(exc))
         self._enforce_contact_limits(lead, now=now)
 
         try:
@@ -193,6 +206,7 @@ class OutreachManager:
         if existing is not None:
             self._refresh_feedback(existing.opportunity_id, existing.id)
             self._refresh_experiment(existing.opportunity_id, existing.id)
+            self._refresh_channel_experiment(existing.opportunity_id, existing.id)
             return existing, self.state.get_revenue_for_response(existing.id)
         if run.status not in {OutreachRunStatus.DISPATCHED, OutreachRunStatus.WAITING_RESULT}:
             raise OutreachError(f"run {run.id} is not waiting for a response")
@@ -244,6 +258,13 @@ class OutreachManager:
                     "currency": response.currency.upper(),
                     "experiment_id": str(draft.experiment_id) if draft.experiment_id else None,
                     "experiment_arm_key": draft.experiment_arm_key,
+                    "channel_experiment_id": (
+                        str(draft.channel_experiment_id)
+                        if draft.channel_experiment_id is not None
+                        else None
+                    ),
+                    "channel_experiment_arm_key": draft.channel_experiment_arm_key,
+                    "channel": draft.channel.value,
                 },
             )
         )
@@ -262,6 +283,7 @@ class OutreachManager:
             )
         self._refresh_feedback(response.opportunity_id, response.id)
         self._refresh_experiment(response.opportunity_id, response.id)
+        self._refresh_channel_experiment(response.opportunity_id, response.id)
         return response, revenue
 
     def _refresh_feedback(self, opportunity_id: UUID, response_id: UUID) -> None:
@@ -286,6 +308,21 @@ class OutreachManager:
             self.engine.store.append_event(
                 AuditEvent(
                     event_type="gtm.experiment_refresh_failed",
+                    entity_id=response_id,
+                    data={
+                        "opportunity_id": str(opportunity_id),
+                        "error": f"{type(exc).__name__}: {exc}",
+                    },
+                )
+            )
+
+    def _refresh_channel_experiment(self, opportunity_id: UUID, response_id: UUID) -> None:
+        try:
+            self.channel_experiments.refresh(opportunity_id)
+        except Exception as exc:  # noqa: BLE001 -- persisted response must remain accepted
+            self.engine.store.append_event(
+                AuditEvent(
+                    event_type="gtm.channel_experiment_refresh_failed",
                     entity_id=response_id,
                     data={
                         "opportunity_id": str(opportunity_id),
@@ -322,10 +359,21 @@ class OutreachManager:
     def _validate_lead_for_contact(self, lead: Lead) -> None:
         if lead.stage == LeadStage.SUPPRESSED or self.state.is_suppressed(lead_identity(lead)):
             raise OutreachError("lead is suppressed")
-        if not lead.contact_endpoint:
+        if not lead_contact_options(lead):
             raise OutreachError("lead has no public contact endpoint")
         if lead.stage not in {LeadStage.DRAFTED, LeadStage.QUALIFIED, LeadStage.CONTACTED}:
             raise OutreachError(f"lead stage {lead.stage.value} is not contactable")
+
+    @staticmethod
+    def _validate_draft_contact_binding(draft: OutreachDraft, lead: Lead) -> None:
+        if draft.contact_endpoint is None:
+            return
+        valid = any(
+            option.channel == draft.channel and option.endpoint == draft.contact_endpoint
+            for option in lead_contact_options(lead)
+        )
+        if not valid:
+            raise OutreachError("draft contact endpoint is not a stored public endpoint for this lead")
 
     def _response_stage(self, kind: LeadResponseKind) -> LeadStage:
         if kind == LeadResponseKind.SALE:
