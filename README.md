@@ -47,6 +47,11 @@ HELIS can:
 - require multiple independent positive experiment types before a venture becomes `validated`,
 - kill strongly falsified ventures before product development,
 - build constrained `static_web_v1` and `concierge_ops_v1` artifacts in isolated workspaces,
+- optionally build a dependency-free `python_service_v1` workflow core when an operator enables the executable sandbox,
+- statically reject unsafe Python imports/introspection/top-level side effects before execution,
+- execute only a fixed unittest command inside a non-root, read-only, resource-capped Docker sandbox with external networking disabled,
+- require sandbox tests before executable code may become `verified`,
+- preserve failed executable bytes and test output for the same bounded repair loop,
 - run deterministic build checks plus adversarial model review,
 - perform one bounded automatic repair attempt by default,
 - hash-lock reviewed preview bytes before approved publication,
@@ -104,6 +109,27 @@ helis run
 ```
 
 `helis run` scans markets, performs discovery/evaluation/falsification, plans experiments and executes one safe validation step. The default validation cash budget is **zero**.
+
+### Optional executable MVP sandbox
+
+`python_service_v1` is disabled unless the operator explicitly enables Docker execution. Pre-pull the runtime image because HELIS uses `--pull never`; for stronger reproducibility, pin `HELIS_EXECUTABLE_SANDBOX_IMAGE` to a digest.
+
+```bash
+docker pull python:3.12-alpine
+export HELIS_EXECUTABLE_SANDBOX=docker
+export HELIS_EXECUTABLE_SANDBOX_IMAGE=python:3.12-alpine
+```
+
+Optional bounded controls:
+
+```bash
+HELIS_EXECUTABLE_SANDBOX_TIMEOUT=15
+HELIS_EXECUTABLE_SANDBOX_MEMORY_MB=128
+HELIS_EXECUTABLE_SANDBOX_CPUS=0.5
+HELIS_EXECUTABLE_SANDBOX_PIDS=64
+```
+
+The model never supplies a shell command, image, Docker flags or test command. HELIS mounts only the generated run workspace read-only, disables external container networking with `--network none`, drops Linux capabilities, runs as UID/GID `65534`, sets `no-new-privileges`, caps memory/CPU/PIDs/time and executes one fixed `python -I -B -m unittest discover` command. This is a constrained test sandbox, **not** production deployment authority or a general arbitrary-code platform.
 
 For continuous autonomous operation, the host wakes two independent bounded loops:
 
@@ -173,7 +199,7 @@ Gateway destinations must use HTTPS. Plain HTTP is accepted only for explicit lo
 
 ## Decision safety
 
-The model can summarize evidence, propose tests, generate bounded artifacts, draft outreach and propose a tightly bounded control/variant commercial experiment. It does **not** own final venture transitions or authorization boundaries. Channel experiment planning does not require a model at all.
+The model can summarize evidence, propose tests, generate bounded artifacts, draft outreach and propose a tightly bounded control/variant commercial experiment. It does **not** own final venture transitions or authorization boundaries. Channel experiment planning does not require a model at all. Executable build commands and isolation policy are also fixed outside the model.
 
 Validation decisions are deterministic outside the model. GTM decisions are derived from persisted outcomes and revenue rather than model preference. Commercial and channel experiment assignment, sample caps, outcome scoring and winner selection are deterministic outside the model. Portfolio allocation then uses measured signals and explicit economics to assign only remaining cash/model capacity.
 
@@ -193,15 +219,16 @@ Self-improvement is also split across independent trust boundaries: proposal →
 10. **Discovery and execution fail independently** — source scanning and portfolio work use separate leases.
 11. **Experiment inside existing authority** — A/B testing cannot expand contact volume or bypass approval gates.
 12. **Approve the destination, not just the message** — the exact public channel and endpoint are frozen before dispatch.
+13. **Execute generated code behind a fixed boundary** — the model writes bounded files, never runtime commands or sandbox policy.
 
 ## Current boundary
 
-HELIS now covers the constrained autonomous path from recurring market observation through discovery, validation, MVP artifact building, bounded B2B GTM, bounded offer/pricing and acquisition-channel experimentation, measured revenue/economics, portfolio scheduling/reallocation and controlled self-improvement.
+HELIS now covers the constrained autonomous path from recurring market observation through discovery, validation, static/manual and one sandboxed dependency-free executable MVP form, bounded B2B GTM, bounded offer/pricing and acquisition-channel experimentation, measured revenue/economics, portfolio scheduling/reallocation and controlled self-improvement.
 
 Still intentionally separate or incomplete:
 
 - native direct email/SMS/social transport implementations beyond the narrow operator-configured contact gateway,
-- general arbitrary executable-code builders,
+- general arbitrary executable-code builders, dependency installation and networked service sandboxes,
 - direct payment authority,
 - silent production deployment.
 
