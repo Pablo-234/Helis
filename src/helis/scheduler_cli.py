@@ -9,6 +9,7 @@ from rich.table import Table
 from helis.engine import HelisEngine
 from helis.model_provider import OpenAICompatibleProvider
 from helis.portfolio_scheduler import PortfolioScheduler, SchedulerStore, SchedulerTickReport
+from helis.scheduler_wake import SchedulerWakeController, SchedulerWakeStore, WakePolicy
 from helis.store import HelisStore
 from helis.validation_gateway import ApprovedValidationGateway
 
@@ -18,6 +19,15 @@ console = Console()
 
 def _engine(db: Path) -> HelisEngine:
     return HelisEngine(HelisStore(db))
+
+
+def _scheduler(helis: HelisEngine, workspace_root: Path) -> PortfolioScheduler:
+    return PortfolioScheduler(
+        helis,
+        OpenAICompatibleProvider.from_env(),
+        workspace_root=workspace_root,
+        validation_gateway=ApprovedValidationGateway.from_env(),
+    )
 
 
 def _print_report(report: SchedulerTickReport) -> None:
@@ -47,13 +57,50 @@ def tick(
 ) -> None:
     """Advance the highest-priority eligible active venture envelopes once."""
     helis = _engine(db)
-    scheduler = PortfolioScheduler(
+    _print_report(_scheduler(helis, workspace_root).tick(max_advances=max_advances))
+
+
+@app.command()
+def wake(
+    minimum_interval_seconds: int = typer.Option(900, min=0, max=86_400),
+    lease_seconds: int = typer.Option(600, min=1, max=86_400),
+    max_advances: int = typer.Option(1, min=1, max=20),
+    workspace_root: Path = Path(".helis/workspaces"),
+    db: Path = Path("helis.db"),
+) -> None:
+    """Cron-safe wake: run a bounded scheduler tick only when due and no lease is active."""
+    helis = _engine(db)
+    result = SchedulerWakeController(
         helis,
-        OpenAICompatibleProvider.from_env(),
-        workspace_root=workspace_root,
-        validation_gateway=ApprovedValidationGateway.from_env(),
+        _scheduler(helis, workspace_root),
+    ).wake(
+        WakePolicy(
+            minimum_interval_seconds=minimum_interval_seconds,
+            lease_seconds=lease_seconds,
+            max_advances=max_advances,
+        )
     )
-    _print_report(scheduler.tick(max_advances=max_advances))
+    console.print(
+        f"wake={result.disposition.value} reason={result.reason} "
+        f"report={result.scheduler_report_id or '-'} owner={result.owner_id or '-'}"
+    )
+
+
+@app.command("wake-status")
+def wake_status(db: Path = Path("helis.db")) -> None:
+    """Show the latest wake decision, including throttled and lease-blocked attempts."""
+    result = SchedulerWakeStore(_engine(db)).latest_result()
+    if result is None:
+        console.print("scheduler wake: [yellow]no attempts yet[/]")
+        return
+    console.print(
+        f"wake={result.disposition.value} attempted={result.attempted_at.isoformat()} "
+        f"completed={result.completed_at.isoformat() if result.completed_at else '-'}"
+    )
+    console.print(
+        f"reason={result.reason} report={result.scheduler_report_id or '-'} "
+        f"owner={result.owner_id or '-'}"
+    )
 
 
 @app.command()
