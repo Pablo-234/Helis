@@ -5,18 +5,18 @@ from pathlib import Path
 from uuid import UUID
 
 from helis.budget import BudgetExceeded, CycleBudget
-from helis.builder_generator import BuildGenerationError, BuilderGenerator
+from helis.build_templates import get_template
+from helis.builder_generator import BuilderGenerator, BuildGenerationError
 from helis.builder_planner import BuilderPlanner
 from helis.builder_review import AdversarialBuildReviewer
 from helis.builder_sandbox import BuildSandbox, BuildVerifier, UnsafeBuildArtifact, bundle_hash
-from helis.build_templates import get_template
 from helis.domain import (
     BuildCheck,
     BuildReview,
     BuildReviewVerdict,
     BuildRun,
-    BuildStatus,
     BuildSpec,
+    BuildStatus,
     Opportunity,
     PreviewManifest,
     VentureStage,
