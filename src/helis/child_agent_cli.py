@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
+import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Annotated
 from uuid import UUID, uuid4
 
 import typer
@@ -15,7 +18,9 @@ from helis.bot_architect import architecture_input_hash
 from helis.budget import CycleBudget
 from helis.child_agent_factory import ChildAgentFactory
 from helis.child_agent_runtime import ChildAgentRuntime
+from helis.child_agent_starters import create_service_intake_starter
 from helis.child_agent_store import ChildAgentArtifactStore
+from helis.child_agent_worker import ChildAgentWorker
 from helis.domain import Opportunity, ValidationOutcome, ValidationResult, VentureStage
 from helis.engine import HelisEngine
 from helis.model_provider import OpenAICompatibleProvider
@@ -27,12 +32,62 @@ from helis.venture_architecture_domain import (
 )
 from helis.venture_architecture_store import VentureArchitectureStore
 
-app = typer.Typer(help="Materialize and run HELIS venture-owned child agents")
+app = typer.Typer(help="Materialize, run and operate HELIS venture-owned child agents")
 console = Console()
 
 
 def _engine(db: Path) -> HelisEngine:
     return HelisEngine(HelisStore(db))
+
+
+def _worker(
+    engine: HelisEngine,
+    artifact_id: UUID,
+    workspace_root: Path,
+    *,
+    max_model_calls: int = 4,
+) -> ChildAgentWorker:
+    return ChildAgentWorker(
+        engine,
+        OpenAICompatibleProvider.from_env(),
+        artifact_id,
+        workspace_root=workspace_root,
+        max_model_calls_per_job=max_model_calls,
+    )
+
+
+def _enqueue_csv(worker: ChildAgentWorker, input_csv: Path) -> int:
+    raw = input_csv.read_bytes()
+    file_hash = hashlib.sha256(raw).hexdigest()
+    count = 0
+    with input_csv.open("r", encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        if not reader.fieldnames:
+            raise ValueError("CSV must contain a header row")
+        for row_number, row in enumerate(reader, start=2):
+            normalized = {str(key): str(value or "") for key, value in row.items() if key is not None}
+            task = (
+                "Process this real inbound service-inquiry record. Return only the intake analysis "
+                "required by your child-agent contract.\nRECORD:\n"
+                + json.dumps(normalized, ensure_ascii=False, sort_keys=True)
+            )
+            worker.enqueue(
+                task,
+                source="csv",
+                source_key=f"{file_hash}:{row_number}",
+                metadata={"file": input_csv.name, "row": str(row_number)},
+            )
+            count += 1
+    return count
+
+
+def _print_receipt(receipt) -> None:
+    console.print(
+        f"job={receipt.job_id} status={receipt.status.value} turns={receipt.turns_used} "
+        f"stop={receipt.stop_reason}"
+    )
+    if receipt.output:
+        console.print(receipt.output)
 
 
 @app.command()
@@ -88,7 +143,7 @@ def run(
     workspace_root: Path = Path(".helis/ventures"),
     db: Path = Path("helis.db"),
 ) -> None:
-    """Run one immutable child agent in reasoning-only v1 mode."""
+    """Run one immutable child agent immediately."""
     engine = _engine(db)
     budget = CycleBudget(
         max_model_calls=max_model_calls,
@@ -109,6 +164,166 @@ def run(
 
 
 @app.command()
+def enqueue(
+    artifact_id: str,
+    task: str = typer.Option(..., help="Real work item for this child agent"),
+    workspace_root: Path = Path(".helis/ventures"),
+    db: Path = Path("helis.db"),
+) -> None:
+    """Put one persistent job into a child agent's venture-local inbox."""
+    engine = _engine(db)
+    job = _worker(engine, UUID(artifact_id), workspace_root).enqueue(task)
+    console.print(f"enqueued job={job.id} task_hash={job.task_hash[:12]}…")
+
+
+@app.command("enqueue-file")
+def enqueue_file(
+    artifact_id: str,
+    input_file: Path,
+    workspace_root: Path = Path(".helis/ventures"),
+    db: Path = Path("helis.db"),
+) -> None:
+    """Enqueue one UTF-8 text/JSON file as a real work item."""
+    raw = input_file.read_text(encoding="utf-8")
+    task = f"Process this supplied work record according to your contract.\nRECORD:\n{raw}"
+    source_key = hashlib.sha256(input_file.read_bytes()).hexdigest()
+    engine = _engine(db)
+    job = _worker(engine, UUID(artifact_id), workspace_root).enqueue(
+        task,
+        source="file",
+        source_key=source_key,
+        metadata={"file": input_file.name},
+    )
+    console.print(f"enqueued job={job.id} source={input_file}")
+
+
+@app.command("enqueue-csv")
+def enqueue_csv(
+    artifact_id: str,
+    input_csv: Path,
+    workspace_root: Path = Path(".helis/ventures"),
+    db: Path = Path("helis.db"),
+) -> None:
+    """Enqueue every CSV row as an idempotent real work item."""
+    engine = _engine(db)
+    worker = _worker(engine, UUID(artifact_id), workspace_root)
+    count = _enqueue_csv(worker, input_csv)
+    console.print(f"queued_rows={count} pending={worker.pending_count()}")
+
+
+@app.command()
+def work(
+    artifact_id: str,
+    watch: bool = typer.Option(False, help="Keep watching the queue for new jobs"),
+    poll_seconds: float = typer.Option(2.0, min=0.2, max=60),
+    max_jobs: int = typer.Option(100, min=1, max=10_000),
+    max_model_calls: int = typer.Option(4, min=1, max=12),
+    workspace_root: Path = Path(".helis/ventures"),
+    db: Path = Path("helis.db"),
+) -> None:
+    """Process queued jobs now, or stay alive as a persistent child-agent worker."""
+    engine = _engine(db)
+    worker = _worker(
+        engine,
+        UUID(artifact_id),
+        workspace_root,
+        max_model_calls=max_model_calls,
+    )
+    processed = 0
+    try:
+        while True:
+            receipts = worker.work_until_empty(max_jobs=max_jobs - processed)
+            for receipt in receipts:
+                _print_receipt(receipt)
+            processed += len(receipts)
+            if processed >= max_jobs or not watch:
+                break
+            if not receipts:
+                time.sleep(poll_seconds)
+    except KeyboardInterrupt:
+        console.print("worker stopped")
+    console.print(f"processed={processed} pending={worker.pending_count()}")
+
+
+@app.command()
+def results(
+    artifact_id: str,
+    limit: int = typer.Option(20, min=1, max=1000),
+    workspace_root: Path = Path(".helis/ventures"),
+    db: Path = Path("helis.db"),
+) -> None:
+    """Show persisted worker results without invoking the model."""
+    engine = _engine(db)
+    worker = _worker(engine, UUID(artifact_id), workspace_root)
+    result_dir = worker.queue_root / "results"
+    paths = sorted(result_dir.glob("*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
+    for path in paths[:limit]:
+        receipt = worker.receipt(UUID(path.stem))
+        if receipt is not None:
+            _print_receipt(receipt)
+
+
+@app.command("recover-jobs")
+def recover_jobs(
+    artifact_id: str,
+    older_than_minutes: int = typer.Option(60, min=1),
+    workspace_root: Path = Path(".helis/ventures"),
+    db: Path = Path("helis.db"),
+) -> None:
+    """Move stale crash-orphaned processing jobs back to pending."""
+    engine = _engine(db)
+    worker = _worker(engine, UUID(artifact_id), workspace_root)
+    recovered = worker.recover_stale_processing(older_than_minutes=older_than_minutes)
+    console.print(f"recovered={recovered} pending={worker.pending_count()}")
+
+
+@app.command("starter-intake")
+def starter_intake(
+    input_csv: Annotated[
+        Path | None,
+        typer.Option("--csv", help="CSV of real inquiries to process"),
+    ] = None,
+    message: Annotated[
+        str | None,
+        typer.Option(help="One real inquiry to process"),
+    ] = None,
+    process: bool = typer.Option(True, help="Immediately process queued records"),
+    max_jobs: int = typer.Option(100, min=1, max=10_000),
+    workspace_root: Path = Path(".helis/ventures"),
+    db: Path = Path("helis.db"),
+) -> None:
+    """Create/reuse a persistent service-intake child agent and optionally do real work now."""
+    engine = _engine(db)
+    report = create_service_intake_starter(engine, workspace_root=workspace_root)
+    artifact = report.artifact
+    console.print(
+        f"[bold green]SERVICE INTAKE AGENT READY[/] artifact={artifact.id} "
+        f"created={report.created}"
+    )
+    worker = _worker(engine, artifact.id, workspace_root)
+    queued = 0
+    if input_csv is not None:
+        queued += _enqueue_csv(worker, input_csv)
+    if message is not None:
+        worker.enqueue(
+            "Process this real inbound service inquiry according to your contract.\nRECORD:\n"
+            + message,
+            source="cli_message",
+        )
+        queued += 1
+    console.print(f"queued={queued} pending={worker.pending_count()}")
+    if process and worker.pending_count() > 0:
+        receipts = worker.work_until_empty(max_jobs=max_jobs)
+        for receipt in receipts:
+            _print_receipt(receipt)
+        console.print(f"processed={len(receipts)} pending={worker.pending_count()}")
+    console.print(
+        f"queue={worker.queue_root}\n"
+        f"keep_running: helis-agent work {artifact.id} --watch"
+    )
+
+
+@app.command()
 def smoke(
     task: str = typer.Option(
         "Uporządkuj ten chaos w trzy krótkie kroki: klient chce szybszej odpowiedzi, "
@@ -117,7 +332,7 @@ def smoke(
     ),
     max_model_calls: int = typer.Option(3, min=1, max=6),
 ) -> None:
-    """FIRST BOOT diagnostic using the real Factory + Runtime and configured local model."""
+    """Diagnostic using the real Factory + Runtime and configured local model."""
     with TemporaryDirectory(prefix="helis-first-boot-") as temporary:
         root = Path(temporary)
         engine = HelisEngine(HelisStore(root / "smoke.db"))
