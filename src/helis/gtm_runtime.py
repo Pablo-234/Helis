@@ -31,10 +31,10 @@ class GTMTickReport:
             return True
         if self.discovery is None:
             return False
+        # Reading the same market candidates again is activity, not durable progress.
         return any(
             (
                 self.discovery.queries_planned,
-                self.discovery.candidates_seen,
                 self.discovery.leads_added,
                 self.discovery.leads_qualified,
                 self.discovery.drafts_created,
@@ -136,11 +136,31 @@ class GTMRuntime:
             if draft is not None:
                 prepared_run_id = self.outreach.prepare(draft.id).id
 
+        if prepared_run_id is not None:
+            reason = "discovery_draft_prepared"
+        elif discovery.model_budget_exhausted:
+            reason = "no_model_capacity"
+        elif self._discovery_did_progress(discovery):
+            reason = "discovery_completed"
+        else:
+            reason = "market_scan_no_new_signal"
+
         return self._report(
             opportunity_id,
             discovery=discovery,
             prepared_run_id=prepared_run_id,
-            reason=("discovery_draft_prepared" if prepared_run_id else "discovery_completed"),
+            reason=reason,
+        )
+
+    @staticmethod
+    def _discovery_did_progress(discovery: GTMDiscoveryReport) -> bool:
+        return any(
+            (
+                discovery.queries_planned,
+                discovery.leads_added,
+                discovery.leads_qualified,
+                discovery.drafts_created,
+            )
         )
 
     def _unprepared_draft(self, opportunity_id: UUID):

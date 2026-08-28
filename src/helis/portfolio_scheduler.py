@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Callable
 from datetime import datetime
 from enum import StrEnum
@@ -14,10 +16,12 @@ from helis.contact_gateway import ContactGateway
 from helis.domain import AuditEvent, ExperimentRunStatus, VentureStage, utc_now
 from helis.engine import HelisEngine
 from helis.gtm_lifecycle import ACTIVE_GTM_STAGES, gtm_is_active
+from helis.gtm_store import GTMStore
 from helis.model_provider import ModelProvider
 from helis.portfolio import PortfolioStore
 from helis.prospect_gateway import ProspectGateway
 from helis.resource_envelope import EnvelopeStatus, ResourceEnvelope, ResourceEnvelopeManager
+from helis.scheduler_backoff import AdaptiveSchedulerBackoff
 from helis.validation_gateway import ApprovedValidationGateway
 from helis.venture_runtime import VentureRuntime
 
@@ -71,6 +75,7 @@ class VentureAdvancer(Protocol):
 
 
 RuntimeFactory = Callable[[UUID], VentureAdvancer]
+Clock = Callable[[], datetime]
 
 
 class SchedulerStore:
@@ -143,6 +148,7 @@ class PortfolioScheduler:
         prospect_gateway: ProspectGateway | None = None,
         contact_gateway: ContactGateway | None = None,
         runtime_factory: RuntimeFactory | None = None,
+        clock: Clock | None = None,
     ) -> None:
         self.engine = engine
         self.provider = provider
@@ -153,8 +159,11 @@ class PortfolioScheduler:
         self.envelopes = ResourceEnvelopeManager(engine)
         self.cash = CashReservationManager(engine)
         self.portfolio = PortfolioStore(engine)
+        self.gtm = GTMStore(engine.store)
+        self.backoff = AdaptiveSchedulerBackoff(engine)
         self.state = SchedulerStore(engine)
         self.runtime_factory = runtime_factory or self._default_runtime
+        self.clock = clock or utc_now
 
     def tick(self, *, max_advances: int = 1) -> SchedulerTickReport:
         if not 1 <= max_advances <= 20:
@@ -177,12 +186,13 @@ class PortfolioScheduler:
             )
         )
 
+        now = self.clock()
         items: list[SchedulerItem] = []
         attempts = 0
         for envelope in active:
             priority = priorities.get(envelope.opportunity_id, 0.0)
             cash_before = self.cash.available_cash(envelope.id)
-            reason = self._skip_reason(envelope, plan.id)
+            reason = self._skip_reason(envelope, plan.id, now=now)
             if reason is not None:
                 items.append(
                     self._item(
@@ -227,6 +237,23 @@ class PortfolioScheduler:
             cash_after = self.cash.available_cash(envelope.id)
             did_work = bool(getattr(result, "did_work", True))
             gtm = getattr(result, "gtm", None)
+            runtime_reason = (
+                "venture_runtime_advanced"
+                if did_work
+                else getattr(gtm, "reason", "venture_runtime_noop")
+            )
+            opportunity = self.engine.store.get_opportunity(envelope.opportunity_id)
+            if opportunity is not None and gtm_is_active(opportunity.stage):
+                if did_work:
+                    self.backoff.clear(opportunity.id)
+                elif gtm is not None:
+                    self.backoff.record_noop(
+                        opportunity.id,
+                        reason=gtm.reason,
+                        fingerprint=self._gtm_fingerprint(refreshed, opportunity.stage),
+                        now=now,
+                    )
+
             items.append(
                 SchedulerItem(
                     envelope_id=envelope.id,
@@ -235,11 +262,7 @@ class PortfolioScheduler:
                     disposition=(
                         SchedulerDisposition.ADVANCED if did_work else SchedulerDisposition.NOOP
                     ),
-                    reason=(
-                        "venture_runtime_advanced"
-                        if did_work
-                        else getattr(gtm, "reason", "venture_runtime_noop")
-                    ),
+                    reason=runtime_reason,
                     model_calls_before=envelope.model_calls_consumed,
                     model_calls_after=refreshed.model_calls_consumed,
                     available_cash_before=cash_before,
@@ -256,7 +279,13 @@ class PortfolioScheduler:
         self._save(report)
         return report
 
-    def _skip_reason(self, envelope: ResourceEnvelope, latest_plan_id: UUID) -> str | None:
+    def _skip_reason(
+        self,
+        envelope: ResourceEnvelope,
+        latest_plan_id: UUID,
+        *,
+        now: datetime,
+    ) -> str | None:
         if envelope.plan_id != latest_plan_id:
             return "stale_active_envelope"
         opportunity = self.engine.store.get_opportunity(envelope.opportunity_id)
@@ -269,17 +298,65 @@ class PortfolioScheduler:
         if any(item.status == CashReservationStatus.RESERVED for item in reservations):
             return "open_cash_commitment"
 
-        if not gtm_is_active(opportunity.stage):
-            runs = self.engine.store.list_experiment_runs(opportunity_id=opportunity.id)
-            blocking = next(
-                (run for run in runs if run.status in self._BLOCKING_VALIDATION_STATUSES),
-                None,
+        if gtm_is_active(opportunity.stage):
+            cooldown = self.backoff.skip_reason(
+                opportunity.id,
+                fingerprint=self._gtm_fingerprint(envelope, opportunity.stage),
+                now=now,
             )
-            if blocking is not None:
-                return f"validation_{blocking.status.value}"
-            if envelope.remaining_model_calls <= 0:
-                return "no_model_capacity"
+            if cooldown is not None:
+                return cooldown
+            return None
+
+        runs = self.engine.store.list_experiment_runs(opportunity_id=opportunity.id)
+        blocking = next(
+            (run for run in runs if run.status in self._BLOCKING_VALIDATION_STATUSES),
+            None,
+        )
+        if blocking is not None:
+            return f"validation_{blocking.status.value}"
+        if envelope.remaining_model_calls <= 0:
+            return "no_model_capacity"
         return None
+
+    def _gtm_fingerprint(self, envelope: ResourceEnvelope, stage: VentureStage) -> str:
+        runs = self.gtm.list_outreach_runs(envelope.opportunity_id)
+        drafts = self.gtm.list_drafts(envelope.opportunity_id)
+        responses = self.gtm.list_responses(envelope.opportunity_id)
+        payload = {
+            "stage": stage.value,
+            "plan_id": str(envelope.plan_id),
+            "envelope_id": str(envelope.id),
+            "remaining_model_calls": envelope.remaining_model_calls,
+            "prospect_gateway": (
+                self.prospect_gateway.safe_destination if self.prospect_gateway else None
+            ),
+            "contact_gateway": (
+                self.contact_gateway.safe_destination if self.contact_gateway else None
+            ),
+            "drafts": [str(item.id) for item in drafts],
+            "runs": [
+                {
+                    "id": str(item.id),
+                    "status": item.status.value,
+                    "approval_granted": item.approval_granted,
+                    "external_ref": item.external_ref,
+                    "updated_at": item.updated_at.isoformat(),
+                }
+                for item in runs
+            ],
+            "responses": [
+                {
+                    "id": str(item.id),
+                    "run_id": str(item.run_id),
+                    "kind": item.kind.value,
+                    "created_at": item.created_at.isoformat(),
+                }
+                for item in responses
+            ],
+        }
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
     def _item(
         self,
