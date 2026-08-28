@@ -33,6 +33,8 @@ OBSERVE → DISCOVER → HYPOTHESIZE → EVALUATE → FALSIFY
 HELIS can:
 
 - collect traceable market observations from RSS/Atom, public GitHub issues and Hacker News,
+- periodically wake market discovery from cron/systemd with an independent due interval and crash-safe lease,
+- resume unprocessed discovery/evaluation work after crashes while making zero model calls on genuinely empty cycles,
 - generate venture candidates only when they reference supplied observations,
 - score candidates with deterministic, inspectable arithmetic,
 - challenge promising candidates with a skeptic pass,
@@ -59,8 +61,11 @@ HELIS can:
 - reserve/settle/release cash commitments without silently minting spent capacity back,
 - automatically roll only remaining treasury into new portfolio plans after material GTM/economics changes,
 - select the next eligible funded venture with a bounded portfolio scheduler,
-- wake safely from cron/systemd using throttling plus an expiring singleton lease,
+- wake portfolio execution safely from cron/systemd using throttling plus an expiring singleton lease,
 - apply adaptive per-venture GTM cooldowns when repeated wakes cannot make progress,
+- propose bounded low-authority improvements to HELIS itself in isolated hash-locked workspaces,
+- compare exact baseline and candidate behavior before any git write,
+- require explicit review-branch approval, exact green CI, a second merge approval and fresh pre-merge attestation before a self-improvement can reach the default branch,
 - retain an append-only audit trail in SQLite.
 
 ## Quick start
@@ -90,16 +95,19 @@ helis run
 
 `helis run` scans markets, performs discovery/evaluation/falsification, plans experiments and executes one safe validation step. The default validation cash budget is **zero**.
 
-For the portfolio control loop:
+For continuous autonomous operation, the host wakes two independent bounded loops:
 
 ```bash
+helis-discovery health
+helis-discovery wake
+
 helis-scheduler health
 helis-scheduler wake
 helis-scheduler wake-status
 helis-scheduler status
 ```
 
-`wake` is safe to invoke frequently from cron/systemd. HELIS itself enforces the minimum wake interval, single-worker lease, per-tick work cap, resource envelopes, approvals and adaptive venture cooldowns.
+`helis-discovery wake` scans configured sources and advances one resumable business-brain cycle. `helis-scheduler wake` advances funded venture execution. Both are safe to invoke more frequently than their actual work cadence because HELIS enforces independent persistent due intervals and singleton leases.
 
 ## Approved external gateways
 
@@ -108,7 +116,11 @@ HELIS never lets a model choose transport destinations or credentials. External 
 - validation gateway — approved interview/pricing validation transport,
 - preview gateway — approved publication of the exact reviewed artifact hash,
 - prospect gateway — read-only B2B prospect discovery,
-- contact gateway — one already-approved first contact.
+- contact gateway — one already-approved first contact,
+- self-evaluation gateway — isolated exact baseline-vs-candidate evaluation,
+- self-branch gateway — writes only an explicitly approved candidate to its deterministic review branch,
+- self-CI gateway — read-only exact review-branch CI attestation,
+- self-merge gateway — performs only a second-approved base-locked merge.
 
 Example validation configuration:
 
@@ -146,7 +158,9 @@ Gateway destinations must use HTTPS. Plain HTTP is accepted only for explicit lo
 
 The model can summarize evidence, propose tests, generate bounded artifacts and draft outreach. It does **not** own final venture transitions or authorization boundaries.
 
-Validation decisions are deterministic outside the model. GTM decisions are also derived from persisted outcomes and revenue rather than model preference. Portfolio allocation then uses those measured signals and explicit economics to assign only remaining cash/model capacity.
+Validation decisions are deterministic outside the model. GTM decisions are derived from persisted outcomes and revenue rather than model preference. Portfolio allocation then uses those measured signals and explicit economics to assign only remaining cash/model capacity.
+
+Self-improvement is also split across independent trust boundaries: proposal → isolated candidate → immutable evaluation → explicit branch approval → exact green CI → separate merge approval → fresh matching CI → base-locked merge. A stale approval, changed branch head or advanced default branch blocks the merge rather than rebasing or silently applying old code.
 
 ## Design principles
 
@@ -156,13 +170,14 @@ Validation decisions are deterministic outside the model. GTM decisions are also
 4. **Autonomy is permissioned** — research can be broad; external side effects are separately gated.
 5. **Everything is auditable** — important state transitions append events.
 6. **Framework-independent core** — models and agent frameworks are adapters, not the architecture.
-7. **No silent self-modification** — changes to HELIS itself go through git, tests and explicit merge policy.
+7. **No silent self-modification** — changes to HELIS itself go through exact evaluation, git, CI and explicit approvals.
 8. **Optimize expected value, not activity** — repeated reads/no-op wakes are not success.
-9. **Durable state beats resident agents** — HELIS can reconstruct its control loop after a crash or reboot.
+9. **Durable state beats resident agents** — HELIS can reconstruct its control loops after a crash or reboot.
+10. **Discovery and execution fail independently** — source scanning and portfolio work use separate leases.
 
 ## Current boundary
 
-HELIS now covers the constrained path from market observation through validation, MVP artifact building, bounded B2B GTM, measured revenue/economics and portfolio scheduling/reallocation.
+HELIS now covers the constrained autonomous path from recurring market observation through discovery, validation, MVP artifact building, bounded B2B GTM, measured revenue/economics, portfolio scheduling/reallocation and controlled self-improvement.
 
 Still intentionally separate or incomplete:
 
@@ -171,15 +186,15 @@ Still intentionally separate or incomplete:
 - automatic pricing experimentation,
 - general arbitrary executable-code builders,
 - direct payment authority,
-- silent production deployment,
-- controlled self-improvement/patch proposal and eval/merge pipeline.
+- silent production deployment.
 
 ## Running continuously
 
-Reference Linux systemd and cron deployment assets live in `deploy/`. The scheduler is intentionally host-woken rather than an unbounded resident `while True` process.
+Reference Linux systemd and cron deployment assets live in `deploy/`. HELIS is intentionally host-woken rather than an unbounded resident `while True` process. One timer wakes market discovery and a separate timer wakes portfolio execution.
 
 See:
 
 - `docs/OPERATIONS.md` — systemd/cron installation, health checks, restart behavior and logs,
+- `docs/SELF_IMPROVEMENT.md` — controlled self-improvement trust chain,
 - `docs/ROADMAP.md` — capability roadmap,
 - `docs/VALIDATION.md` — validation execution model.
