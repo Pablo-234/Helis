@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from helis.engine import HelisEngine
 from helis.gtm_decision import GTMDecision, GTMDecisionEngine
 from helis.gtm_store import GTMStore
 
@@ -9,7 +10,7 @@ from helis.gtm_store import GTMStore
 class GTMFeedbackRefresher:
     """Keeps deterministic GTM decisions synchronized with persisted market outcomes."""
 
-    def __init__(self, engine) -> None:
+    def __init__(self, engine: HelisEngine) -> None:
         self.engine = engine
         self.state = GTMStore(engine.store)
         self.decisions = GTMDecisionEngine(engine)
