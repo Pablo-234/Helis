@@ -64,29 +64,32 @@ Exit criterion: met at the transport layer when an approved validation gateway i
 
 Exit criterion: met for constrained MVP artifacts. A validated venture can become a verified/reviewed artifact, repair one failed build, and be published through an explicit policy-gated transport without rebuilding or mutating the reviewed bytes. General executable software builders remain a future capability rather than a requirement for entering go-to-market.
 
-## Phase 3 — Go-to-market (next)
+## Phase 3 — Go-to-market
 
-- [ ] prospect discovery with evidence-bound lead reasons
-- [ ] per-venture CRM/event trail
-- [ ] outreach drafts and approval tiers
-- [ ] bounded contact batches / anti-spam limits
-- [ ] channel experiments
-- [ ] pricing experiments
-- [ ] response/result ingestion
-- [ ] revenue attribution
-- [ ] automatic stop/continue rules per acquisition experiment
+- [x] prospect discovery with evidence-bound lead reasons
+- [x] per-venture CRM/event trail
+- [x] outreach drafts and run-scoped approval
+- [x] bounded contact batches / anti-spam limits
+- [ ] automatic multi-channel acquisition experiments
+- [ ] automatic pricing experiments
+- [x] response/result ingestion
+- [x] revenue attribution
+- [x] deterministic continue / pause / kill / scale rules over measured GTM outcomes
 
-Exit criterion: a venture can progress from reviewed preview to measured first revenue while every customer-facing action remains attributable, bounded and reversible where possible.
+Exit criterion: core path met. A venture can progress from reviewed preview to bounded first contact, measured response and attributed first revenue, then receive an evidence-based GTM allocation decision. Automatic channel/pricing experimentation remains a later enhancement.
 
 ## Phase 4 — Portfolio / capital allocator
 
-- [ ] expected-value portfolio ranking
-- [ ] compute and cash budgets per venture
-- [ ] stop-loss rules
-- [ ] scaling thresholds
-- [ ] automatic resource reallocation
+- [ ] expected-value portfolio model with explicit uncertainty
+- [x] bounded compute and cash allocation plan per venture
+- [x] reserve floor and per-venture concentration cap
+- [x] killed/paused ventures receive zero new allocation
+- [x] scaling and measured traction influence deterministic priority
+- [x] snapshot-hashed/idempotent portfolio plans
+- [ ] automatic execution of approved resource envelopes
+- [ ] realized ROI / cost feedback into future portfolio weights
 
-Exit criterion: HELIS allocates scarce money/compute between competing ventures instead of merely running them all.
+Exit criterion: HELIS allocates scarce money/compute between competing ventures instead of merely running them all. Initial allocator plans resources only; actual spending/execution remains separately gated.
 
 ## Phase 5 — Controlled self-improvement
 
