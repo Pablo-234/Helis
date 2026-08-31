@@ -8,7 +8,7 @@ from rich.console import Console
 from rich.table import Table
 
 from helis.engine import HelisEngine
-from helis.preview_gateway import ApprovedPreviewGateway
+from helis.live_gateway_factory import live_gateways_from_env
 from helis.preview_publisher import PreviewPublicationError, PreviewPublisher
 from helis.store import HelisStore
 
@@ -26,7 +26,7 @@ def _publisher(
     *,
     with_gateway: bool = False,
 ) -> PreviewPublisher:
-    gateway = ApprovedPreviewGateway.from_env() if with_gateway else None
+    gateway = live_gateways_from_env().preview if with_gateway else None
     return PreviewPublisher(
         _engine(db),
         workspace_root=workspace_root,
@@ -73,10 +73,10 @@ def publish(
     db: Path = Path("helis.db"),
     workspace_root: Path = Path(".helis/workspaces"),
 ) -> None:
-    """Publish the exact reviewed hash through the configured HTTPS preview gateway."""
-    gateway = ApprovedPreviewGateway.from_env()
+    """Publish the exact reviewed hash through the selected live preview adapter."""
+    gateway = live_gateways_from_env().preview
     if gateway is None:
-        raise typer.BadParameter("HELIS_PREVIEW_GATEWAY_URL is not configured")
+        raise typer.BadParameter("no preview adapter is configured")
     publisher = PreviewPublisher(
         _engine(db),
         workspace_root=workspace_root,
@@ -117,11 +117,14 @@ def status(
 
 @app.command("gateway-status")
 def gateway_status() -> None:
-    gateway = ApprovedPreviewGateway.from_env()
+    gateway = live_gateways_from_env().preview
     if gateway is None:
         console.print("preview gateway: [yellow]not configured[/]")
         return
-    console.print(f"preview gateway: [green]configured[/] → {gateway.safe_destination}")
+    console.print(
+        f"preview gateway: [green]{getattr(gateway, 'name', type(gateway).__name__)}[/] "
+        f"→ {gateway.safe_destination}"
+    )
 
 
 if __name__ == "__main__":
