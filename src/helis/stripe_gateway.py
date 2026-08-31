@@ -128,7 +128,7 @@ class StripeCommerceGateway:
             payload = json.loads(response.read().decode("utf-8"))
         sessions = payload.get("data", [])
         if not isinstance(sessions, list):
-            raise RuntimeError("Stripe Checkout Sessions response has invalid data shape")
+            raise TypeError("Stripe Checkout Sessions response has invalid data shape")
         for session in sessions:
             if not isinstance(session, dict):
                 continue
