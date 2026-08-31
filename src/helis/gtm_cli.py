@@ -8,7 +8,6 @@ from rich.console import Console
 from rich.table import Table
 
 from helis.budget import CycleBudget
-from helis.contact_gateway import ApprovedContactGateway
 from helis.engine import HelisEngine
 from helis.gtm_channel_experiment import (
     GTMChannelExperimentManager,
@@ -20,8 +19,8 @@ from helis.gtm_experiment import GTMExperimentManager
 from helis.gtm_experiment_store import GTMExperimentStore
 from helis.gtm_outreach import GTMContactPolicy, OutreachError, OutreachManager
 from helis.gtm_store import GTMStore, lead_identity
+from helis.live_gateway_factory import live_gateways_from_env
 from helis.model_provider import OpenAICompatibleProvider
-from helis.prospect_gateway import ApprovedProspectGateway
 from helis.store import HelisStore
 
 app = typer.Typer(help="HELIS bounded go-to-market operations")
@@ -33,7 +32,7 @@ def _engine(db: Path) -> HelisEngine:
 
 
 def _manager(db: Path, *, with_gateway: bool = False) -> OutreachManager:
-    gateway = ApprovedContactGateway.from_env() if with_gateway else None
+    gateway = live_gateways_from_env().contact if with_gateway else None
     return OutreachManager(
         _engine(db),
         gateway=gateway,
@@ -50,9 +49,9 @@ def discover(
     max_cost_cents: float = 10.0,
 ) -> None:
     """Discover, evidence-bind, qualify and draft a tiny B2B prospect batch. Sends nothing."""
-    gateway = ApprovedProspectGateway.from_env()
+    gateway = live_gateways_from_env().prospect
     if gateway is None:
-        raise typer.BadParameter("HELIS_PROSPECT_GATEWAY_URL is not configured")
+        raise typer.BadParameter("no prospect adapter is configured")
     helis = _engine(db)
     provider = OpenAICompatibleProvider.from_env()
     budget = CycleBudget(
@@ -159,7 +158,7 @@ def experiments(opportunity_id: str, db: Path = Path("helis.db")) -> None:
 
 @app.command("channel-experiments")
 def channel_experiments(opportunity_id: str, db: Path = Path("helis.db")) -> None:
-    """Show persisted acquisition-channel experiments without model/network calls."""
+    """Show persisted bounded acquisition-channel experiments."""
     engine = _engine(db)
     state = GTMChannelExperimentStore(engine)
     items = state.list(UUID(opportunity_id))
@@ -201,8 +200,8 @@ def approve(run_id: str, db: Path = Path("helis.db")) -> None:
 
 @app.command()
 def dispatch(run_id: str, db: Path = Path("helis.db")) -> None:
-    if ApprovedContactGateway.from_env() is None:
-        raise typer.BadParameter("HELIS_CONTACT_GATEWAY_URL is not configured")
+    if live_gateways_from_env().contact is None:
+        raise typer.BadParameter("no contact adapter is configured")
     try:
         run = _manager(db, with_gateway=True).dispatch(UUID(run_id))
     except OutreachError as exc:
@@ -212,21 +211,47 @@ def dispatch(run_id: str, db: Path = Path("helis.db")) -> None:
     )
 
 
+@app.command("poll-result")
+def poll_result(run_id: str, db: Path = Path("helis.db")) -> None:
+    """Read an observed reply for one dispatched run and persist it without inventing revenue."""
+    live = live_gateways_from_env()
+    if live.contact_result is None:
+        raise typer.BadParameter("no contact-result adapter is configured")
+    engine = _engine(db)
+    state = GTMStore(engine.store)
+    run = state.get_outreach_run(UUID(run_id))
+    if run is None:
+        raise typer.BadParameter("outreach run not found")
+    response = live.contact_result.fetch(run)
+    if response is None:
+        console.print("result: [yellow]pending[/]")
+        return
+    try:
+        stored, revenue_event = OutreachManager(engine).record_response(response)
+    except OutreachError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    console.print(f"result={stored.kind.value} summary={stored.summary[:160]}")
+    if revenue_event is not None:
+        console.print(
+            f"[bold green]revenue[/] {revenue_event.amount_cents} {revenue_event.currency}¢"
+        )
+
+
 @app.command("record-response")
 def record_response(path: Path, db: Path = Path("helis.db")) -> None:
     response = LeadResponse.model_validate_json(path.read_text(encoding="utf-8"))
     try:
-        stored, revenue = _manager(db).record_response(response)
+        stored, revenue_event = _manager(db).record_response(response)
     except OutreachError as exc:
         raise typer.BadParameter(str(exc)) from exc
     console.print(
         f"response={stored.kind.value} lead={stored.lead_id} revenue={stored.revenue_cents} "
         f"{stored.currency.upper()}"
     )
-    if revenue is not None:
+    if revenue_event is not None:
         console.print(
-            f"[bold green]revenue attributed[/] {revenue.amount_cents} {revenue.currency} "
-            f"venture={revenue.opportunity_id}"
+            f"[bold green]revenue attributed[/] {revenue_event.amount_cents} "
+            f"{revenue_event.currency} venture={revenue_event.opportunity_id}"
         )
 
 
@@ -262,16 +287,19 @@ def suppress(lead_id: str, reason: str, db: Path = Path("helis.db")) -> None:
 
 @app.command("gateway-status")
 def gateway_status() -> None:
-    prospect = ApprovedProspectGateway.from_env()
-    contact = ApprovedContactGateway.from_env()
-    console.print(
-        "prospect gateway: "
-        + (f"[green]{prospect.safe_destination}[/]" if prospect else "[yellow]not configured[/]")
-    )
-    console.print(
-        "contact gateway: "
-        + (f"[green]{contact.safe_destination}[/]" if contact else "[yellow]not configured[/]")
-    )
+    live = live_gateways_from_env()
+    for key, gateway in (
+        ("prospect", live.prospect),
+        ("contact", live.contact),
+        ("contact-result", live.contact_result),
+    ):
+        if gateway is None:
+            console.print(f"{key}: [yellow]not configured[/]")
+        else:
+            console.print(
+                f"{key}: [green]{getattr(gateway, 'name', type(gateway).__name__)}[/] "
+                f"→ {gateway.safe_destination}"
+            )
 
 
 if __name__ == "__main__":
