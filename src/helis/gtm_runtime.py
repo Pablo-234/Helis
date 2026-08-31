@@ -15,6 +15,7 @@ from helis.gtm_lifecycle import gtm_is_active
 from helis.gtm_outreach import GTMContactPolicy, OutreachManager
 from helis.gtm_store import GTMStore
 from helis.model_provider import ModelProvider
+from helis.policy import AutonomyPolicy
 from helis.prospect_gateway import ProspectGateway
 
 
@@ -44,7 +45,6 @@ class GTMTickReport:
             return True
         if self.discovery is None:
             return False
-        # Reading the same market candidates again is activity, not durable progress.
         return any(
             (
                 self.discovery.queries_planned,
@@ -57,7 +57,7 @@ class GTMTickReport:
 
 
 class GTMRuntime:
-    """Advances one funded venture's GTM state without ever granting contact approval."""
+    """Advance one funded venture under an operator-owned contact policy."""
 
     def __init__(
         self,
@@ -68,6 +68,7 @@ class GTMRuntime:
         prospect_gateway: ProspectGateway | None = None,
         contact_gateway: ContactGateway | None = None,
         contact_result_gateway: ContactResultGateway | None = None,
+        autonomy_policy: AutonomyPolicy | None = None,
         max_waiting_approval: int = 3,
         max_waiting_result: int = 3,
     ) -> None:
@@ -75,6 +76,7 @@ class GTMRuntime:
             raise ValueError("max_waiting_approval must be between 1 and 20")
         if not 1 <= max_waiting_result <= 20:
             raise ValueError("max_waiting_result must be between 1 and 20")
+        selected_policy = autonomy_policy or AutonomyPolicy()
         self.engine = engine
         self.budget = budget
         self.state = GTMStore(engine.store)
@@ -92,7 +94,10 @@ class GTMRuntime:
         self.outreach = OutreachManager(
             engine,
             gateway=contact_gateway,
-            contact_policy=GTMContactPolicy(),
+            contact_policy=GTMContactPolicy(
+                require_run_approval=not selected_policy.allow_external_contact_without_approval
+            ),
+            autonomy_policy=selected_policy,
         )
         self.contact_gateway = contact_gateway
         self.contact_result_gateway = contact_result_gateway
