@@ -14,8 +14,10 @@ from helis.commerce_gateway import CommerceGateway
 from helis.contact_gateway import ContactGateway
 from helis.contact_result_gateway import ContactResultGateway
 from helis.cycle import CycleReport, HelisCycle
+from helis.domain import AuditEvent
 from helis.engine import HelisEngine
 from helis.model_provider import ModelProvider
+from helis.policy import AutonomyPolicy
 from helis.portfolio import PortfolioAllocator, PortfolioBudget, PortfolioPlan, PortfolioStore
 from helis.portfolio_reallocation import ReallocatingPortfolioControlLoop
 from helis.portfolio_scheduler import PortfolioScheduler, SchedulerTickReport
@@ -40,7 +42,7 @@ class AutopilotStopReason(StrEnum):
 
 
 class AutopilotPolicy(BaseModel):
-    """Operator-owned ceilings for one zero-idea online venture run."""
+    """Operator-owned ceilings and explicit category grants for one online venture run."""
 
     cash_cents: int = Field(default=0, ge=0, le=100_000_000)
     currency: str = Field(default="PLN", min_length=3, max_length=3)
@@ -55,6 +57,9 @@ class AutopilotPolicy(BaseModel):
     discovery_max_cost_cents: float = Field(default=25.0, ge=0, le=100_000)
     max_rounds: int = Field(default=12, ge=1, le=100)
     max_advances_per_round: int = Field(default=3, ge=1, le=20)
+    allow_checkout_without_approval: bool = False
+    allow_publication_without_approval: bool = False
+    allow_first_contact_without_approval: bool = False
 
     @field_validator("currency")
     @classmethod
@@ -70,6 +75,27 @@ class AutopilotPolicy(BaseModel):
             max_ventures=self.max_ventures,
             max_concentration=self.max_concentration,
         )
+
+    def autonomy_policy(self) -> AutonomyPolicy:
+        """Translate only the explicitly granted live categories; spend and self-modify stay off."""
+        return AutonomyPolicy(
+            autonomous_spend_limit_cents=0,
+            allow_checkout_creation_without_approval=self.allow_checkout_without_approval,
+            allow_publication_without_approval=self.allow_publication_without_approval,
+            allow_external_contact_without_approval=self.allow_first_contact_without_approval,
+            allow_self_modification_without_approval=False,
+        )
+
+    @property
+    def granted_live_actions(self) -> list[str]:
+        grants: list[str] = []
+        if self.allow_checkout_without_approval:
+            grants.append("checkout_create")
+        if self.allow_publication_without_approval:
+            grants.append("publication")
+        if self.allow_first_contact_without_approval:
+            grants.append("first_contact")
+        return grants
 
 
 class AutopilotScanner(Protocol):
@@ -149,6 +175,8 @@ class AutonomousOnlineVentureOperator:
 
     def run(self, policy: AutopilotPolicy | None = None) -> AutopilotReport:
         selected = policy or AutopilotPolicy()
+        autonomy_policy = selected.autonomy_policy()
+        self._audit_policy(selected)
         discovery = self._discover(selected)
         plan, bootstrapped = self._ensure_portfolio(selected)
         funded = len(plan.allocations) if plan is not None else 0
@@ -188,7 +216,7 @@ class AutonomousOnlineVentureOperator:
             validation_gateway=self.validation_gateway,
             prospect_gateway=self.prospect_gateway,
             contact_gateway=self.contact_gateway,
-            runtime_factory=self._runtime,
+            runtime_factory=lambda envelope_id: self._runtime(envelope_id, autonomy_policy),
         )
         control = ReallocatingPortfolioControlLoop(self.engine, scheduler)
         rounds: list[SchedulerTickReport] = []
@@ -236,7 +264,7 @@ class AutonomousOnlineVentureOperator:
             selected.currency,
         )
 
-    def _runtime(self, envelope_id: UUID) -> VentureRuntime:
+    def _runtime(self, envelope_id: UUID, autonomy_policy: AutonomyPolicy) -> VentureRuntime:
         return VentureRuntime(
             self.engine,
             self.provider,
@@ -248,6 +276,23 @@ class AutonomousOnlineVentureOperator:
             contact_gateway=self.contact_gateway,
             contact_result_gateway=self.contact_result_gateway,
             commerce_gateway=self.commerce_gateway,
+            autonomy_policy=autonomy_policy,
+        )
+
+    def _audit_policy(self, policy: AutopilotPolicy) -> None:
+        self.engine.store.append_event(
+            AuditEvent(
+                event_type="autopilot.policy_applied",
+                data={
+                    "live_grants": policy.granted_live_actions,
+                    "autonomous_spend_limit_cents": 0,
+                    "portfolio_cash_cents": policy.cash_cents,
+                    "currency": policy.currency,
+                    "max_ventures": policy.max_ventures,
+                    "max_rounds": policy.max_rounds,
+                    "max_advances_per_round": policy.max_advances_per_round,
+                },
+            )
         )
 
     def _publication_gates(self) -> list[str]:
