@@ -18,6 +18,7 @@ from helis.engine import HelisEngine
 from helis.gtm_lifecycle import gtm_is_active
 from helis.gtm_runtime import GTMRuntime, GTMTickReport
 from helis.model_provider import ModelProvider
+from helis.policy import AutonomyPolicy
 from helis.preview_domain import PreviewPublishRun, PreviewPublishStatus, PublishedPreview
 from helis.preview_gateway import PreviewGateway
 from helis.preview_publisher import PreviewPublicationError, PreviewPublisher
@@ -93,6 +94,7 @@ class VentureRuntime:
         contact_gateway: ContactGateway | None = None,
         contact_result_gateway: ContactResultGateway | None = None,
         commerce_gateway: CommerceGateway | None = None,
+        autonomy_policy: AutonomyPolicy | None = None,
     ) -> None:
         self.engine = engine
         self.provider = provider
@@ -116,6 +118,7 @@ class VentureRuntime:
         self.contact_gateway = contact_gateway
         self.contact_result_gateway = contact_result_gateway
         self.commerce_gateway = commerce_gateway
+        self.autonomy_policy = autonomy_policy or AutonomyPolicy()
 
     def validate(
         self,
@@ -186,7 +189,11 @@ class VentureRuntime:
         )
         opportunity = self.engine.store.get_opportunity(self.opportunity_id)
         commerce: CommerceTickReport | None = None
-        commerce_manager = CommerceManager(self.engine, gateway=self.commerce_gateway)
+        commerce_manager = CommerceManager(
+            self.engine,
+            gateway=self.commerce_gateway,
+            policy=self.autonomy_policy,
+        )
         if opportunity is not None and commerce_manager.is_eligible(opportunity):
             commerce = commerce_manager.poll_payment(self.opportunity_id)
             if commerce.revenue_created:
@@ -203,6 +210,7 @@ class VentureRuntime:
             prospect_gateway=self.prospect_gateway,
             contact_gateway=self.contact_gateway,
             contact_result_gateway=self.contact_result_gateway,
+            autonomy_policy=self.autonomy_policy,
         ).tick(self.opportunity_id)
         return VentureRuntimeReport(
             envelope=self._require_envelope(),
@@ -314,7 +322,11 @@ class VentureRuntime:
                     agents=agents,
                 )
 
-            commerce_manager = CommerceManager(self.engine, gateway=self.commerce_gateway)
+            commerce_manager = CommerceManager(
+                self.engine,
+                gateway=self.commerce_gateway,
+                policy=self.autonomy_policy,
+            )
             commerce = commerce_manager.advance_prebuild(self.opportunity_id)
             if commerce_manager.is_eligible(current) and (
                 commerce.reason != "commerce_checkout_active" or commerce.did_work
@@ -359,7 +371,11 @@ class VentureRuntime:
             max_model_cost_cents=max_model_cost_cents,
         )
         opportunity = self.engine.store.get_opportunity(self.opportunity_id)
-        commerce_manager = CommerceManager(self.engine, gateway=self.commerce_gateway)
+        commerce_manager = CommerceManager(
+            self.engine,
+            gateway=self.commerce_gateway,
+            policy=self.autonomy_policy,
+        )
         if (
             opportunity is not None
             and commerce_manager.is_eligible(opportunity)
@@ -376,6 +392,7 @@ class VentureRuntime:
         publisher = PreviewPublisher(
             self.engine,
             workspace_root=self.workspace_root,
+            policy=self.autonomy_policy,
             gateway=self.preview_gateway,
         )
         preview = self.engine.store.get_preview_manifest_for_opportunity(self.opportunity_id)
