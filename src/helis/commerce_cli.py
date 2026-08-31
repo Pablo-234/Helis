@@ -7,9 +7,9 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from helis.commerce_gateway import ApprovedCommerceGateway
 from helis.commerce_manager import CommerceError, CommerceManager
 from helis.engine import HelisEngine
+from helis.live_gateway_factory import live_gateways_from_env
 from helis.store import HelisStore
 
 app = typer.Typer(help="Inspect, approve and observe HELIS self-serve commerce")
@@ -21,7 +21,7 @@ def _engine(db: Path) -> HelisEngine:
 
 
 def _manager(db: Path, *, with_gateway: bool = False) -> CommerceManager:
-    gateway = ApprovedCommerceGateway.from_env() if with_gateway else None
+    gateway = live_gateways_from_env().commerce if with_gateway else None
     return CommerceManager(_engine(db), gateway=gateway)
 
 
@@ -67,8 +67,11 @@ def approve(run_id: str, db: Path = Path("helis.db")) -> None:
 
 @app.command()
 def activate(run_id: str, db: Path = Path("helis.db")) -> None:
-    """Create the approved checkout through the configured commerce gateway."""
-    manager = _manager(db, with_gateway=True)
+    """Create the approved checkout through the selected commerce adapter."""
+    gateway = live_gateways_from_env().commerce
+    if gateway is None:
+        raise typer.BadParameter("no commerce adapter is configured")
+    manager = CommerceManager(_engine(db), gateway=gateway)
     run = manager.state.get_run(UUID(run_id))
     if run is None:
         raise typer.BadParameter("checkout run not found")
@@ -84,7 +87,10 @@ def activate(run_id: str, db: Path = Path("helis.db")) -> None:
 @app.command()
 def poll(opportunity_id: str, db: Path = Path("helis.db")) -> None:
     """Poll observed payment state without using the model."""
-    manager = _manager(db, with_gateway=True)
+    gateway = live_gateways_from_env().commerce
+    if gateway is None:
+        raise typer.BadParameter("no commerce adapter is configured")
+    manager = CommerceManager(_engine(db), gateway=gateway)
     report = manager.poll_payment(UUID(opportunity_id))
     console.print(f"commerce={report.reason}")
     if report.revenue is not None:
@@ -122,11 +128,14 @@ def revenue(
 
 @app.command("gateway-status")
 def gateway_status() -> None:
-    gateway = ApprovedCommerceGateway.from_env()
+    gateway = live_gateways_from_env().commerce
     if gateway is None:
         console.print("commerce gateway: [yellow]not configured[/]")
         return
-    console.print(f"commerce gateway: [green]{gateway.safe_destination}[/]")
+    console.print(
+        f"commerce gateway: [green]{getattr(gateway, 'name', type(gateway).__name__)}[/] "
+        f"→ {gateway.safe_destination}"
+    )
 
 
 if __name__ == "__main__":
