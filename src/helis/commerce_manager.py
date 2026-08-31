@@ -105,7 +105,7 @@ class CommerceManager:
         if run is None:
             decision = self.policy.evaluate(
                 ActionRequest(
-                    kind=ActionKind.NETWORK_WRITE,
+                    kind=ActionKind.CHECKOUT_CREATE,
                     description=(
                         f"create checkout for venture {opportunity.id} at {offer.display_price}"
                     ),
