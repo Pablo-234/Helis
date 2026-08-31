@@ -7,14 +7,10 @@ from rich.console import Console
 from rich.table import Table
 
 from helis.autopilot import AutonomousOnlineVentureOperator, AutopilotPolicy
-from helis.commerce_gateway import ApprovedCommerceGateway
-from helis.contact_gateway import ApprovedContactGateway
-from helis.contact_result_gateway import ApprovedContactResultGateway
 from helis.engine import HelisEngine
+from helis.live_gateway_factory import live_gateways_from_env
 from helis.model_provider import OpenAICompatibleProvider
 from helis.portfolio import PortfolioStore
-from helis.preview_gateway import ApprovedPreviewGateway
-from helis.prospect_gateway import ApprovedProspectGateway
 from helis.source_registry import HelisConfig, SourceKind, SourceRegistry, SourceSpec
 from helis.store import HelisStore
 from helis.validation_gateway import ApprovedValidationGateway
@@ -51,17 +47,18 @@ def _operator(
     config: Path,
     workspace_root: Path,
 ) -> AutonomousOnlineVentureOperator:
+    live = live_gateways_from_env()
     return AutonomousOnlineVentureOperator(
         engine,
         OpenAICompatibleProvider.from_env(),
         lambda: _scanner(config),
         workspace_root=workspace_root,
         validation_gateway=ApprovedValidationGateway.from_env(),
-        preview_gateway=ApprovedPreviewGateway.from_env(),
-        prospect_gateway=ApprovedProspectGateway.from_env(),
-        contact_gateway=ApprovedContactGateway.from_env(),
-        contact_result_gateway=ApprovedContactResultGateway.from_env(),
-        commerce_gateway=ApprovedCommerceGateway.from_env(),
+        preview_gateway=live.preview,
+        prospect_gateway=live.prospect,
+        contact_gateway=live.contact,
+        contact_result_gateway=live.contact_result,
+        commerce_gateway=live.commerce,
     )
 
 
@@ -105,6 +102,11 @@ def _run(
     max_advances_per_round: int,
 ) -> None:
     engine = _engine(db)
+    live = live_gateways_from_env()
+    configured = ", ".join(
+        f"{key}={value or 'missing'}" for key, value in live.names.items()
+    )
+    console.print(f"live adapters: {configured}")
     report = _operator(engine, config, workspace_root).run(
         AutopilotPolicy(
             cash_cents=cash_cents,
@@ -208,6 +210,11 @@ def status(db: Path = Path("helis.db")) -> None:
     """Show current autonomous online-venture state without network or model calls."""
     engine = _engine(db)
     plan = PortfolioStore(engine).latest()
+    live = live_gateways_from_env()
+    console.print(
+        "live adapters: "
+        + ", ".join(f"{key}={value or 'missing'}" for key, value in live.names.items())
+    )
     console.print(f"latest portfolio={plan.id if plan else '-'}")
     if plan is not None:
         console.print(
