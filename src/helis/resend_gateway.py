@@ -13,7 +13,14 @@ from urllib.request import Request, urlopen
 
 from helis.contact_gateway import ContactGatewayAck
 from helis.contact_result_gateway import ContactResultGateway
-from helis.gtm_domain import Lead, LeadChannel, LeadResponse, LeadResponseKind, OutreachDraft, OutreachRun
+from helis.gtm_domain import (
+    Lead,
+    LeadChannel,
+    LeadResponse,
+    LeadResponseKind,
+    OutreachDraft,
+    OutreachRun,
+)
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _TAG_RE = re.compile(r"<[^>]+>")
@@ -79,7 +86,7 @@ def _parse_time(value: object) -> datetime | None:
     if not isinstance(value, str) or not value.strip():
         return None
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value)
     except ValueError:
         return None
     if parsed.tzinfo is None:
@@ -108,7 +115,10 @@ class ResendContactGateway:
 
     @classmethod
     def from_env(cls) -> ResendContactGateway | None:
-        key = os.getenv("HELIS_RESEND_API_KEY", "").strip() or os.getenv("RESEND_API_KEY", "").strip()
+        key = (
+            os.getenv("HELIS_RESEND_API_KEY", "").strip()
+            or os.getenv("RESEND_API_KEY", "").strip()
+        )
         sender = os.getenv("HELIS_RESEND_FROM", "").strip()
         if not key or not sender:
             return None
@@ -165,7 +175,7 @@ class ResendContactGateway:
 
 @dataclass(slots=True)
 class ResendContactResultGateway(ContactResultGateway):
-    """Read observed replies from Resend's inbound mailbox using a per-run Reply-To address.
+    """Read observed replies from Resend using one per-run Reply-To address.
 
     This adapter never infers a SALE or revenue from email text. Actual payment remains a separate
     observed commerce boundary.
@@ -186,7 +196,10 @@ class ResendContactResultGateway(ContactResultGateway):
 
     @classmethod
     def from_env(cls) -> ResendContactResultGateway | None:
-        key = os.getenv("HELIS_RESEND_API_KEY", "").strip() or os.getenv("RESEND_API_KEY", "").strip()
+        key = (
+            os.getenv("HELIS_RESEND_API_KEY", "").strip()
+            or os.getenv("RESEND_API_KEY", "").strip()
+        )
         inbound = os.getenv("HELIS_RESEND_INBOUND_DOMAIN", "").strip()
         if not key or not inbound:
             return None
@@ -206,7 +219,7 @@ class ResendContactResultGateway(ContactResultGateway):
         listing = self._get_json(f"/emails/receiving?{params}")
         items = listing.get("data", [])
         if not isinstance(items, list):
-            raise RuntimeError("Resend inbound list response has invalid data shape")
+            raise TypeError("Resend inbound list response has invalid data shape")
         matches: list[tuple[datetime, str]] = []
         dispatched = run.dispatched_at.astimezone(UTC) if run.dispatched_at is not None else None
         for item in items:
@@ -266,5 +279,5 @@ class ResendContactResultGateway(ContactResultGateway):
         with urlopen(request, timeout=self.timeout_seconds) as response:
             payload = json.loads(response.read().decode("utf-8"))
         if not isinstance(payload, dict):
-            raise RuntimeError("Resend returned a non-object JSON response")
+            raise TypeError("Resend returned a non-object JSON response")
         return payload
