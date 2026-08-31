@@ -100,6 +100,10 @@ def _run(
     max_ventures: int,
     max_rounds: int,
     max_advances_per_round: int,
+    live_auto: bool,
+    auto_checkout: bool,
+    auto_publication: bool,
+    auto_first_contact: bool,
 ) -> None:
     engine = _engine(db)
     live = live_gateways_from_env()
@@ -107,17 +111,21 @@ def _run(
         f"{key}={value or 'missing'}" for key, value in live.names.items()
     )
     console.print(f"live adapters: {configured}")
-    report = _operator(engine, config, workspace_root).run(
-        AutopilotPolicy(
-            cash_cents=cash_cents,
-            currency=currency,
-            portfolio_model_calls=portfolio_model_calls,
-            discovery_model_calls=discovery_model_calls,
-            max_ventures=max_ventures,
-            max_rounds=max_rounds,
-            max_advances_per_round=max_advances_per_round,
-        )
+    policy = AutopilotPolicy(
+        cash_cents=cash_cents,
+        currency=currency,
+        portfolio_model_calls=portfolio_model_calls,
+        discovery_model_calls=discovery_model_calls,
+        max_ventures=max_ventures,
+        max_rounds=max_rounds,
+        max_advances_per_round=max_advances_per_round,
+        allow_checkout_without_approval=live_auto or auto_checkout,
+        allow_publication_without_approval=live_auto or auto_publication,
+        allow_first_contact_without_approval=live_auto or auto_first_contact,
     )
+    grants = ", ".join(policy.granted_live_actions) or "none"
+    console.print(f"run-scoped autonomy grants: {grants}; autonomous spend=0¢")
+    report = _operator(engine, config, workspace_root).run(policy)
 
     discovery = report.discovery
     console.print("[bold green]HELIS ZERO-TO-REVENUE RUN COMPLETE[/]")
@@ -149,6 +157,41 @@ def _run(
     _print_ventures(engine)
 
 
+def _common_run(
+    *,
+    config: Path,
+    db: Path,
+    workspace_root: Path,
+    cash_cents: int,
+    currency: str,
+    portfolio_model_calls: int,
+    discovery_model_calls: int,
+    max_ventures: int,
+    max_rounds: int,
+    max_advances_per_round: int,
+    live_auto: bool,
+    auto_checkout: bool,
+    auto_publication: bool,
+    auto_first_contact: bool,
+) -> None:
+    _run(
+        config=config,
+        db=db,
+        workspace_root=workspace_root,
+        cash_cents=cash_cents,
+        currency=currency,
+        portfolio_model_calls=portfolio_model_calls,
+        discovery_model_calls=discovery_model_calls,
+        max_ventures=max_ventures,
+        max_rounds=max_rounds,
+        max_advances_per_round=max_advances_per_round,
+        live_auto=live_auto,
+        auto_checkout=auto_checkout,
+        auto_publication=auto_publication,
+        auto_first_contact=auto_first_contact,
+    )
+
+
 @app.command()
 def start(
     config: Path = Path("helis.toml"),
@@ -161,9 +204,17 @@ def start(
     max_ventures: int = typer.Option(3, min=1, max=20),
     max_rounds: int = typer.Option(12, min=1, max=100),
     max_advances_per_round: int = typer.Option(3, min=1, max=20),
+    live_auto: bool = typer.Option(
+        False,
+        "--live-auto",
+        help="Grant checkout creation, publication and first-contact autonomy for this run only.",
+    ),
+    auto_checkout: bool = typer.Option(False, "--auto-checkout"),
+    auto_publication: bool = typer.Option(False, "--auto-publication"),
+    auto_first_contact: bool = typer.Option(False, "--auto-first-contact"),
 ) -> None:
     """Start from a blank HELIS database and advance online ventures toward real revenue."""
-    _run(
+    _common_run(
         config=config,
         db=db,
         workspace_root=workspace_root,
@@ -174,6 +225,10 @@ def start(
         max_ventures=max_ventures,
         max_rounds=max_rounds,
         max_advances_per_round=max_advances_per_round,
+        live_auto=live_auto,
+        auto_checkout=auto_checkout,
+        auto_publication=auto_publication,
+        auto_first_contact=auto_first_contact,
     )
 
 
@@ -189,9 +244,13 @@ def run(
     max_ventures: int = typer.Option(3, min=1, max=20),
     max_rounds: int = typer.Option(12, min=1, max=100),
     max_advances_per_round: int = typer.Option(3, min=1, max=20),
+    live_auto: bool = typer.Option(False, "--live-auto"),
+    auto_checkout: bool = typer.Option(False, "--auto-checkout"),
+    auto_publication: bool = typer.Option(False, "--auto-publication"),
+    auto_first_contact: bool = typer.Option(False, "--auto-first-contact"),
 ) -> None:
     """Backward-compatible alias for start."""
-    _run(
+    _common_run(
         config=config,
         db=db,
         workspace_root=workspace_root,
@@ -202,6 +261,10 @@ def run(
         max_ventures=max_ventures,
         max_rounds=max_rounds,
         max_advances_per_round=max_advances_per_round,
+        live_auto=live_auto,
+        auto_checkout=auto_checkout,
+        auto_publication=auto_publication,
+        auto_first_contact=auto_first_contact,
     )
 
 
