@@ -38,19 +38,14 @@ def _deployment_url(output: str) -> str | None:
         except ValueError:
             continue
         host = (parsed.hostname or "").lower()
-        if parsed.scheme == "https" and (host.endswith(".vercel.app") or host.endswith(".vercel.rocks")):
+        if parsed.scheme == "https" and host.endswith((".vercel.app", ".vercel.rocks")):
             return candidate
     return None
 
 
 @dataclass(slots=True)
 class VercelCliPreviewGateway:
-    """Publish the exact reviewed bundle through a fixed Vercel CLI invocation.
-
-    The model never chooses shell text, project, scope, token or target. The operator pre-binds one
-    Vercel project through environment variables; HELIS only copies reviewed files into a temporary
-    directory and invokes the fixed preview deployment command without a shell.
-    """
+    """Publish the exact reviewed bundle through a fixed Vercel CLI invocation."""
 
     name: ClassVar[str] = "vercel_cli_preview_v1"
     token: str
@@ -102,7 +97,9 @@ class VercelCliPreviewGateway:
             root = Path(temp_dir).resolve()
             for item in bundle.files:
                 if not _safe_bundle_path(item.path):
-                    raise RuntimeError(f"unsafe reviewed bundle path at publication boundary: {item.path}")
+                    raise RuntimeError(
+                        f"unsafe reviewed bundle path at publication boundary: {item.path}"
+                    )
                 target = (root / item.path).resolve()
                 try:
                     target.relative_to(root)
