@@ -11,6 +11,7 @@ class ActionKind(StrEnum):
     FILE_WRITE = "file_write"
     SANDBOX_EXECUTION = "sandbox_execution"
     NETWORK_WRITE = "network_write"
+    CHECKOUT_CREATE = "checkout_create"
     EXTERNAL_CONTACT = "external_contact"
     PUBLICATION = "publication"
     SPEND = "spend"
@@ -33,6 +34,7 @@ class PolicyDecision(BaseModel):
 
 class AutonomyPolicy(BaseModel):
     autonomous_spend_limit_cents: int = Field(default=0, ge=0)
+    allow_checkout_creation_without_approval: bool = False
     allow_publication_without_approval: bool = False
     allow_external_contact_without_approval: bool = False
     allow_self_modification_without_approval: bool = False
@@ -53,6 +55,14 @@ class AutonomyPolicy(BaseModel):
                 allowed=allowed,
                 requires_approval=not allowed,
                 reason="within_spend_limit" if allowed else "spend_limit_exceeded",
+            )
+
+        if action.kind == ActionKind.CHECKOUT_CREATE:
+            allowed = self.allow_checkout_creation_without_approval
+            return PolicyDecision(
+                allowed=allowed,
+                requires_approval=not allowed,
+                reason="checkout_creation_gate",
             )
 
         if action.kind == ActionKind.PUBLICATION:
