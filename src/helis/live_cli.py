@@ -98,31 +98,27 @@ def doctor() -> None:
 def env_example() -> None:
     """Print the direct-adapter environment variable names without exposing any secret values."""
     console.print(
-        "\n".join(
-            [
-                '# Local/OpenAI-compatible model',
-                '$env:HELIS_LLM_BASE_URL="http://localhost:11434/v1"',
-                '$env:HELIS_LLM_MODEL="qwen3.5:9b"',
-                '',
-                '# Vercel preview publication',
-                '$env:HELIS_VERCEL_TOKEN="<secret>"',
-                '$env:HELIS_VERCEL_ORG_ID="<org-id>"',
-                '$env:HELIS_VERCEL_PROJECT_ID="<project-id>"',
-                '',
-                '# Brave Search prospecting',
-                '$env:HELIS_BRAVE_SEARCH_API_KEY="<secret>"',
-                '$env:HELIS_BRAVE_COUNTRY="PL"',
-                '$env:HELIS_BRAVE_SEARCH_LANG="pl"',
-                '',
-                '# Resend outbound + inbound replies',
-                '$env:HELIS_RESEND_API_KEY="<secret>"',
-                '$env:HELIS_RESEND_FROM="HELIS <hello@your-domain.example>"',
-                '$env:HELIS_RESEND_INBOUND_DOMAIN="your-inbound.resend.app"',
-                '',
-                '# Stripe self-serve checkout',
-                '$env:HELIS_STRIPE_SECRET_KEY="<secret>"',
-            ]
-        )
+        '''# Local/OpenAI-compatible model
+$env:HELIS_LLM_BASE_URL="http://localhost:11434/v1"
+$env:HELIS_LLM_MODEL="qwen3.5:9b"
+
+# Vercel preview publication
+$env:HELIS_VERCEL_TOKEN="<secret>"
+$env:HELIS_VERCEL_ORG_ID="<org-id>"
+$env:HELIS_VERCEL_PROJECT_ID="<project-id>"
+
+# Brave Search prospecting
+$env:HELIS_BRAVE_SEARCH_API_KEY="<secret>"
+$env:HELIS_BRAVE_COUNTRY="PL"
+$env:HELIS_BRAVE_SEARCH_LANG="pl"
+
+# Resend outbound + inbound replies
+$env:HELIS_RESEND_API_KEY="<secret>"
+$env:HELIS_RESEND_FROM="HELIS <hello@your-domain.example>"
+$env:HELIS_RESEND_INBOUND_DOMAIN="your-inbound.resend.app"
+
+# Stripe self-serve checkout
+$env:HELIS_STRIPE_SECRET_KEY="<secret>"'''
     )
 
 
