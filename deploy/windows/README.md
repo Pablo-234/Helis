@@ -10,14 +10,18 @@ trusted environment loader parses `NAME=VALUE` lines literally and never evaluat
 file as PowerShell. Run it directly to import the same configuration into the current PowerShell
 process before interactive HELIS commands.
 
+Run the controlled-pilot script before registering recurring tasks. It stops on the first blocked
+inventory, smoke test, readiness check or pilot failure. The required confirmation switch permits
+only configured public market reads and calls to the credential-free local model; the underlying
+pilot still uses zero cash and receives no external-write gateways. The script never installs
+software, downloads a model or registers scheduled tasks.
+
 From Windows PowerShell in the repository:
 
 ```powershell
 New-Item -ItemType Directory -Force "$env:USERPROFILE\.config\helis" | Out-Null
 Copy-Item deploy\helis.env.example "$env:USERPROFILE\.config\helis\helis.env"
-helis-live bootstrap
-.\deploy\windows\Import-HelisEnv.ps1
-helis-live model-status
+.\deploy\windows\Start-HelisControlledPilot.ps1 -ConfirmPublicNetworkReads
 .\deploy\windows\Register-HelisTasks.ps1
 helis-live doctor --probe-model
 ```

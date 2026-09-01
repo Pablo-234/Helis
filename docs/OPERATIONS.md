@@ -99,6 +99,9 @@ helis-live pilot-status
 helis-operator inbox
 ```
 
+`model-status`, `model-smoke` and `doctor` return a nonzero process exit code whenever their
+required check is blocked. They can therefore gate scripts without parsing human-readable output.
+
 `bootstrap` creates missing directories, the SQLite schema and a conservative Hacker News source configuration. Existing configuration and database files are preserved. Every invocation is audited.
 
 `doctor` checks the source file, writable state paths, local model configuration, optional Docker sandbox, reference timers and gateway configuration. By default it performs no network calls. `--probe-model` makes one uncredentialed `GET /models` request to localhost and never asks for a completion.
@@ -131,13 +134,17 @@ From Windows PowerShell in the installed repository:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
-helis-live bootstrap
-.\deploy\windows\Import-HelisEnv.ps1
-helis-live model-status
+.\deploy\windows\Start-HelisControlledPilot.ps1 -ConfirmPublicNetworkReads
 .\deploy\windows\Register-HelisTasks.ps1
 helis-live doctor --probe-model
 Get-ScheduledTask -TaskName "HELIS Discovery", "HELIS Scheduler"
 ```
+
+Run the controlled pilot before registration. It performs the fail-closed sequence `bootstrap` →
+`model-status` → `model-smoke` → `doctor --probe-model` → `pilot` → `pilot-status` → operator
+inbox and stops at the first nonzero exit code. `-ConfirmPublicNetworkReads` explicitly authorizes
+the pilot's configured public-source reads and local-model calls; it does not enable contact,
+publication, payment, deployment or scheduled-task creation.
 
 The registration script creates `HELIS Discovery` at a 15-minute host cadence and
 `HELIS Scheduler` at a five-minute host cadence. Their fixed wake commands preserve the same internal
