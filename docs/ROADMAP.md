@@ -20,7 +20,7 @@
 - [x] experiment designer
 - [x] policy-aware experiment ranking
 
-Exit criterion: met. Market discovery and portfolio execution can both be host-woken safely by cron/systemd, each with an independent crash-safe lease and bounded work budget.
+Exit criterion: met. Market discovery and portfolio execution can be host-woken safely by Windows Task Scheduler, cron or systemd, each with an independent crash-safe lease and bounded work budget.
 
 ## Phase 1 — Validation machine
 
@@ -110,7 +110,7 @@ Exit criterion: met for bounded B2B go-to-market. A venture can progress from re
 - [x] remaining-treasury rollover never restores consumed cash/model calls
 - [x] open commitments block unsafe supersession
 - [x] activation-race recovery preserves the prior authoritative plan
-- [x] reference systemd/cron host wake deployment
+- [x] reference Windows Task Scheduler/systemd/cron host wake deployment
 
 Exit criterion: met for the bounded constrained venture path. HELIS can rank competing ventures, assign scarce money/compute, enforce allocations during execution, select the next eligible funded venture, ingest market outcomes and automatically reallocate only the remaining treasury.
 

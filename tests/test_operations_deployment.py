@@ -52,6 +52,45 @@ def test_discovery_systemd_and_cron_assets_keep_safe_wake_contract() -> None:
     assert "--lease-seconds 900" in cron
 
 
+def test_windows_wake_script_keeps_fixed_bounded_contract_and_literal_env_loading() -> None:
+    wake = (ROOT / "deploy/windows/Invoke-HelisWake.ps1").read_text(encoding="utf-8")
+    env_loader = (ROOT / "deploy/windows/Import-HelisEnv.ps1").read_text(encoding="utf-8")
+
+    assert 'ValidateSet("Discovery", "Scheduler")' in wake
+    assert "Import-HelisEnv.ps1" in wake
+    assert "[Environment]::SetEnvironmentVariable" in env_loader
+    assert "Invoke-Expression" not in env_loader
+    assert "^HELIS_[A-Z0-9_]+$" in env_loader
+    assert "Duplicate HELIS environment variable" in env_loader
+    assert "--minimum-interval-seconds\", \"3600" in wake
+    assert "--lease-seconds\", \"900" in wake
+    assert "--max-model-calls\", \"8" in wake
+    assert "--max-cost-cents\", \"25" in wake
+    assert "--minimum-interval-seconds\", \"900" in wake
+    assert "--lease-seconds\", \"600" in wake
+    assert "--max-advances\", \"2" in wake
+    assert ".venv\\Scripts\\helis-discovery.exe" in wake
+    assert ".venv\\Scripts\\helis-scheduler.exe" in wake
+
+
+def test_windows_registration_uses_limited_user_and_keeps_secrets_out_of_action() -> None:
+    registration = (ROOT / "deploy/windows/Register-HelisTasks.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'Name = "HELIS Discovery"' in registration
+    assert 'Name = "HELIS Scheduler"' in registration
+    assert "IntervalMinutes = 15" in registration
+    assert "IntervalMinutes = 5" in registration
+    assert "-LogonType Interactive" in registration
+    assert "-RunLevel Limited" in registration
+    assert "-MultipleInstances IgnoreNew" in registration
+    assert "-StartWhenAvailable" in registration
+    assert 'if ($Replace)' in registration
+    assert "HELIS_LLM_API_KEY" not in registration
+    assert "HELIS_VALIDATION_GATEWAY_TOKEN" not in registration
+
+
 def test_scheduler_health_runs_without_model_or_gateway_calls(
     tmp_path,
     monkeypatch,

@@ -7,7 +7,20 @@ This guide turns HELIS into a host-managed autonomous process without an unbound
 
 Each loop has its own durable due interval and expiring singleton lease. A stuck market source therefore cannot become the portfolio scheduler's lock, and a busy portfolio tick cannot prevent fresh market discovery.
 
-## Recommended Linux layout
+## Recommended layouts
+
+### Windows
+
+```text
+%USERPROFILE%\Helis\                         repository + virtualenv
+%USERPROFILE%\Helis\helis.db                durable SQLite state
+%USERPROFILE%\Helis\helis.toml              market source configuration
+%USERPROFILE%\Helis\.helis\workspaces\      generated venture workspaces
+%USERPROFILE%\.config\helis\helis.env       model/gateway configuration
+Windows Task Scheduler                       current-user wake tasks
+```
+
+### Linux
 
 ```text
 ~/Helis/                         repository + virtualenv
@@ -22,6 +35,28 @@ Each loop has its own durable due interval and expiring singleton lease. A stuck
 If the repository lives elsewhere, edit `WorkingDirectory`, `ExecStart` and `ReadWritePaths` in the service files.
 
 ## 1. Install HELIS
+
+### Windows PowerShell
+
+```powershell
+git clone https://github.com/Pablo-234/Helis.git "$env:USERPROFILE\Helis"
+Set-Location "$env:USERPROFILE\Helis"
+py -3 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e .
+New-Item -ItemType Directory -Force "$env:USERPROFILE\.config\helis" | Out-Null
+Copy-Item deploy\helis.env.example "$env:USERPROFILE\.config\helis\helis.env"
+helis-live bootstrap
+.\deploy\windows\Import-HelisEnv.ps1
+helis-discovery health
+helis-scheduler health
+```
+
+HELIS requires Python 3.11 or newer. Edit the copied environment file before enabling optional
+gateways. The default local model settings already match the zero-spend pilot commands, so the
+initial preflight does not require secrets or importing the file into the interactive shell.
+
+### Linux
 
 ```bash
 git clone https://github.com/Pablo-234/Helis.git ~/Helis
@@ -90,7 +125,43 @@ The controlled pilot fails closed unless all of the following remain true:
 
 The pilot may read the configured public sources, call the local model and persist normal HELIS lifecycle state. It runs the real bounded online-venture operator, not a simulated business result. Its durable report includes discovery counts, funded ventures, stop reason, blockers and the current operator inbox. The report can be recovered after a terminal disconnect with `helis-live pilot-status`.
 
-## 2. Recommended: systemd user timers
+## 2. Recommended on Windows: Task Scheduler
+
+From Windows PowerShell in the installed repository:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+helis-live bootstrap
+.\deploy\windows\Import-HelisEnv.ps1
+helis-live model-status
+.\deploy\windows\Register-HelisTasks.ps1
+helis-live doctor --probe-model
+Get-ScheduledTask -TaskName "HELIS Discovery", "HELIS Scheduler"
+```
+
+The registration script creates `HELIS Discovery` at a 15-minute host cadence and
+`HELIS Scheduler` at a five-minute host cadence. Their fixed wake commands preserve the same internal
+one-hour discovery and 15-minute portfolio due gates used on Linux. Overlapping invocations are
+ignored and each process keeps a bounded execution limit.
+
+Both tasks run as the current interactive user with `Limited` privileges. No administrator
+elevation, Windows password, model credential or gateway token is placed in the task definition.
+The action contains only the trusted script path, mode, repository path and environment-file path;
+`Import-HelisEnv.ps1` parses values literally without evaluating the environment file as
+PowerShell. The wake script and interactive setup use that same parser. The tasks therefore run
+only while that user is logged on. Windows battery and sleep policy still applies.
+
+Registration preserves any task with the same name. Use `-Replace` only when intentionally
+updating existing HELIS tasks:
+
+```powershell
+.\deploy\windows\Register-HelisTasks.ps1 -Replace
+```
+
+Logs are written to `.helis\discovery.log` and `.helis\scheduler.log`. `helis-live doctor` queries
+task presence read-only through `schtasks.exe`; it does not register, start, stop or modify a task.
+
+## 3. Recommended on Linux: systemd user timers
 
 Install both reference timer pairs:
 
@@ -176,7 +247,7 @@ loginctl enable-linger "$USER"
 
 Enable lingering deliberately; it changes host session behavior and is not hidden inside an install script.
 
-## 3. Cron fallback
+## 4. Cron fallback
 
 If user systemd is unavailable, install the reference lines from:
 
@@ -189,7 +260,7 @@ crontab -e
 
 Both examples explicitly source `~/.config/helis/helis.env` because cron does not understand systemd `EnvironmentFile=`. The discovery line invokes every 15 minutes but keeps its internal one-hour scan gate; the scheduler line invokes every five minutes but keeps its internal 15-minute work gate.
 
-## 4. Restart and crash behavior
+## 5. Restart and crash behavior
 
 HELIS is intentionally restart-safe:
 
@@ -206,7 +277,7 @@ HELIS is intentionally restart-safe:
 
 A reboot requires no in-memory agent process to survive. The next timer/cron invocation reconstructs each control loop from durable state.
 
-## 5. Logs and state
+## 6. Logs and state
 
 Systemd logs go to the user journal. Cron fallback logs to:
 
@@ -215,9 +286,12 @@ Systemd logs go to the user journal. Cron fallback logs to:
 ~/Helis/.helis/scheduler.log
 ```
 
+Windows Task Scheduler uses the same two repository-local log filenames under
+`%USERPROFILE%\Helis\.helis\`.
+
 SQLite is the authoritative operational state. Back it up while no write is in progress, or use a SQLite-aware backup procedure. Workspace files alone cannot reconstruct approvals, cash reservations, revenue attribution, wake leases or idempotency state.
 
-## 6. Security boundaries that remain in force
+## 7. Security boundaries that remain in force
 
 Running HELIS from timers does not increase its authority:
 
@@ -232,7 +306,7 @@ Running HELIS from timers does not increase its authority:
 
 The supplied systemd services also use restrictive umasks, `NoNewPrivileges`, private `/tmp`, a read-only home view and one explicit writable HELIS repository path.
 
-## 7. Updating HELIS
+## 8. Updating HELIS
 
 Stop both automatic wake sources before changing installed code:
 
@@ -248,3 +322,7 @@ systemctl --user start helis-discovery.timer helis-scheduler.timer
 ```
 
 For development, keep using branches + CI rather than editing the live checkout underneath an executing wake.
+
+On Windows, disable both tasks in Task Scheduler before updating the live checkout, reinstall the
+editable package, run both health commands, then enable them again. Re-run the registration script
+with `-Replace` only when the reference task definitions changed.

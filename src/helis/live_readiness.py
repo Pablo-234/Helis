@@ -18,6 +18,7 @@ from helis.autopilot import (
 )
 from helis.domain import AuditEvent, utc_now
 from helis.engine import HelisEngine
+from helis.host_scheduler import HostSchedulerInspector
 from helis.live_gateway_factory import live_gateways_from_env
 from helis.local_model_runtime import (
     LocalModelInspector,
@@ -209,16 +210,15 @@ class LiveReadinessInspector:
         workspace_root: str | Path,
         self_improvement_root: str | Path,
         systemd_user_root: str | Path | None = None,
+        host_scheduler: HostSchedulerInspector | None = None,
     ) -> None:
         self.provider = provider
         self.config = Path(config).expanduser()
         self.db = Path(db).expanduser()
         self.workspace_root = Path(workspace_root).expanduser()
         self.self_improvement_root = Path(self_improvement_root).expanduser()
-        self.systemd_user_root = (
-            Path(systemd_user_root).expanduser()
-            if systemd_user_root is not None
-            else Path.home() / ".config/systemd/user"
+        self.host_scheduler = host_scheduler or HostSchedulerInspector(
+            systemd_user_root=systemd_user_root
         )
 
     def inspect(self, *, probe_model: bool = False) -> LiveReadinessReport:
@@ -359,16 +359,12 @@ class LiveReadinessInspector:
         )
 
     def _timer_check(self) -> ReadinessCheck:
-        expected = [
-            self.systemd_user_root / "helis-discovery.timer",
-            self.systemd_user_root / "helis-scheduler.timer",
-        ]
-        installed = sum(path.is_file() for path in expected)
+        report = self.host_scheduler.inspect()
         return self._check(
             "timers",
-            "Continuous wake timers",
-            ReadinessLevel.READY if installed == len(expected) else ReadinessLevel.WARNING,
-            f"{installed}/{len(expected)} reference user timers installed",
+            "Continuous wake schedule",
+            ReadinessLevel.READY if report.complete else ReadinessLevel.WARNING,
+            report.detail,
         )
 
     def _gateway_check(self) -> ReadinessCheck:
