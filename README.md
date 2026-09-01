@@ -282,6 +282,11 @@ Still intentionally separate or incomplete:
 
 Reference Windows Task Scheduler, Linux systemd and cron deployment assets live in `deploy/`. HELIS is intentionally host-woken rather than an unbounded resident `while True` process. One host schedule wakes market discovery and a separate schedule wakes portfolio execution. `helis-live doctor` checks the native reference schedule on both Windows and Linux without modifying it.
 
+The recurring portfolio scheduler selects the same configured live adapters as the manual
+autopilot: reviewed Vercel preview publication, Brave public prospect research, approved Resend
+contact/reply observation and approved Stripe checkout/payment observation. Configuration never
+replaces the persisted approval required for publication, first contact or checkout creation.
+
 See:
 
 - `docs/OPERATIONS.md` — Windows Task Scheduler/systemd/cron installation, health checks, restart behavior and logs,

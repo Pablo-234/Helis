@@ -6,13 +6,12 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from helis.contact_gateway import ApprovedContactGateway
 from helis.engine import HelisEngine
+from helis.live_gateway_factory import live_gateways_from_env
 from helis.model_provider import OpenAICompatibleProvider
 from helis.portfolio import PortfolioStore
 from helis.portfolio_reallocation import ReallocatingPortfolioControlLoop
 from helis.portfolio_scheduler import PortfolioScheduler, SchedulerStore, SchedulerTickReport
-from helis.prospect_gateway import ApprovedProspectGateway
 from helis.resource_envelope import EnvelopeStatus, ResourceEnvelopeManager
 from helis.scheduler_wake import SchedulerWakeController, SchedulerWakeStore, WakePolicy
 from helis.store import HelisStore
@@ -28,13 +27,17 @@ def _engine(db: Path) -> HelisEngine:
 
 def _control_loop(helis: HelisEngine, workspace_root: Path) -> ReallocatingPortfolioControlLoop:
     provider = OpenAICompatibleProvider.from_env()
+    live = live_gateways_from_env()
     scheduler = PortfolioScheduler(
         helis,
         provider,
         workspace_root=workspace_root,
         validation_gateway=ApprovedValidationGateway.from_env(),
-        prospect_gateway=ApprovedProspectGateway.from_env(),
-        contact_gateway=ApprovedContactGateway.from_env(),
+        preview_gateway=live.preview,
+        prospect_gateway=live.prospect,
+        contact_gateway=live.contact,
+        contact_result_gateway=live.contact_result,
+        commerce_gateway=live.commerce,
     )
     return ReallocatingPortfolioControlLoop(helis, scheduler)
 
@@ -67,6 +70,31 @@ def _gateway_status(factory) -> str:
     if gateway is None:
         return "[yellow]not configured[/]"
     return f"[green]{gateway.safe_destination}[/]"
+
+
+def _live_gateway_rows() -> list[tuple[str, str]]:
+    try:
+        selected = live_gateways_from_env()
+    except ValueError as exc:
+        return [("live adapters", f"[red]invalid: {exc}[/]")]
+    gateways = [
+        ("preview gateway", selected.preview),
+        ("prospect gateway", selected.prospect),
+        ("contact gateway", selected.contact),
+        ("contact result gateway", selected.contact_result),
+        ("commerce gateway", selected.commerce),
+    ]
+    return [
+        (
+            label,
+            (
+                f"[green]{gateway.name} @ {gateway.safe_destination}[/]"
+                if gateway
+                else "[yellow]not configured[/]"
+            ),
+        )
+        for label, gateway in gateways
+    ]
 
 
 @app.command()
@@ -162,8 +190,8 @@ def health(
         ),
     )
     table.add_row("validation gateway", _gateway_status(ApprovedValidationGateway.from_env))
-    table.add_row("prospect gateway", _gateway_status(ApprovedProspectGateway.from_env))
-    table.add_row("contact gateway", _gateway_status(ApprovedContactGateway.from_env))
+    for label, status in _live_gateway_rows():
+        table.add_row(label, status)
     console.print(table)
     console.print(
         "[green]health check completed[/] — no model call, external request, approval or spend occurred"

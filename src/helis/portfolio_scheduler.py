@@ -12,13 +12,16 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, Field
 
 from helis.cash_reservation import CashReservationManager, CashReservationStatus
+from helis.commerce_gateway import CommerceGateway
 from helis.contact_gateway import ContactGateway
+from helis.contact_result_gateway import ContactResultGateway
 from helis.domain import AuditEvent, ExperimentRunStatus, VentureStage, utc_now
 from helis.engine import HelisEngine
 from helis.gtm_lifecycle import ACTIVE_GTM_STAGES, gtm_is_active
 from helis.gtm_store import GTMStore
 from helis.model_provider import ModelProvider
 from helis.portfolio import PortfolioStore
+from helis.preview_gateway import PreviewGateway
 from helis.prospect_gateway import ProspectGateway
 from helis.resource_envelope import EnvelopeStatus, ResourceEnvelope, ResourceEnvelopeManager
 from helis.scheduler_backoff import AdaptiveSchedulerBackoff
@@ -145,8 +148,11 @@ class PortfolioScheduler:
         *,
         workspace_root: str | Path = ".helis/workspaces",
         validation_gateway: ApprovedValidationGateway | None = None,
+        preview_gateway: PreviewGateway | None = None,
         prospect_gateway: ProspectGateway | None = None,
         contact_gateway: ContactGateway | None = None,
+        contact_result_gateway: ContactResultGateway | None = None,
+        commerce_gateway: CommerceGateway | None = None,
         runtime_factory: RuntimeFactory | None = None,
         clock: Clock | None = None,
     ) -> None:
@@ -154,8 +160,11 @@ class PortfolioScheduler:
         self.provider = provider
         self.workspace_root = Path(workspace_root)
         self.validation_gateway = validation_gateway
+        self.preview_gateway = preview_gateway
         self.prospect_gateway = prospect_gateway
         self.contact_gateway = contact_gateway
+        self.contact_result_gateway = contact_result_gateway
+        self.commerce_gateway = commerce_gateway
         self.envelopes = ResourceEnvelopeManager(engine)
         self.cash = CashReservationManager(engine)
         self.portfolio = PortfolioStore(engine)
@@ -335,11 +344,22 @@ class PortfolioScheduler:
             "plan_id": str(envelope.plan_id),
             "envelope_id": str(envelope.id),
             "remaining_model_calls": envelope.remaining_model_calls,
+            "preview_gateway": (
+                self.preview_gateway.safe_destination if self.preview_gateway else None
+            ),
             "prospect_gateway": (
                 self.prospect_gateway.safe_destination if self.prospect_gateway else None
             ),
             "contact_gateway": (
                 self.contact_gateway.safe_destination if self.contact_gateway else None
+            ),
+            "contact_result_gateway": (
+                self.contact_result_gateway.safe_destination
+                if self.contact_result_gateway
+                else None
+            ),
+            "commerce_gateway": (
+                self.commerce_gateway.safe_destination if self.commerce_gateway else None
             ),
             "drafts": [str(item.id) for item in drafts],
             "runs": [
@@ -393,8 +413,11 @@ class PortfolioScheduler:
             envelope_id,
             workspace_root=self.workspace_root,
             validation_gateway=self.validation_gateway,
+            preview_gateway=self.preview_gateway,
             prospect_gateway=self.prospect_gateway,
             contact_gateway=self.contact_gateway,
+            contact_result_gateway=self.contact_result_gateway,
+            commerce_gateway=self.commerce_gateway,
         )
 
     def _save(self, report: SchedulerTickReport) -> None:

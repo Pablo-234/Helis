@@ -158,6 +158,30 @@ The action contains only the trusted script path, mode, repository path and envi
 PowerShell. The wake script and interactive setup use that same parser. The tasks therefore run
 only while that user is logged on. Windows battery and sleep policy still applies.
 
+### Live adapter configuration
+
+The recurring scheduler uses the same provider selection as the manual online-venture autopilot.
+When configured, it can route approved work through:
+
+- Vercel CLI for an immutable reviewed preview;
+- Brave Search for read-only public prospect discovery;
+- Resend for an approved exact-recipient email and observed replies;
+- Stripe for an approved exact-price Payment Link and read-only paid-session polling.
+
+Copy only the credentials you actually intend to enable into `helis.env`, then import the file and
+inspect adapter selection without contacting any provider:
+
+```powershell
+.\deploy\windows\Import-HelisEnv.ps1
+helis-live selected
+helis-scheduler health
+```
+
+Merely configuring an adapter does not approve its side effect. Publication, checkout creation and
+first contact remain separate persisted approvals, and every task wake uses those existing gates.
+The scheduler may autonomously perform public research and poll the result of a previously approved
+action, but it cannot manufacture approval from an API key.
+
 Registration preserves any task with the same name. Use `-Replace` only when intentionally
 updating existing HELIS tasks:
 
