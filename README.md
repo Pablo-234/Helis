@@ -87,6 +87,8 @@ HELIS can:
 - compare exact baseline and candidate behavior before any git write,
 - require explicit review-branch approval, exact green CI, a second merge approval and fresh pre-merge attestation before a self-improvement can reach the default branch,
 - retain an append-only audit trail in SQLite,
+- aggregate every pending side-effect approval and ready non-AI capability input in one operator inbox,
+- require a fresh content-derived confirmation token for every approve/reject decision without executing the side effect itself,
 - materialize immutable venture-owned child agents from the current architecture/spec snapshot,
 - execute dependent child-agent capabilities through a persistent venture-local DAG,
 - pass only the initial venture input and completed dependency outputs into each child step,
@@ -154,6 +156,17 @@ helis-scheduler status
 ```
 
 `helis-discovery wake` scans configured sources and advances one resumable business-brain cycle. `helis-scheduler wake` advances funded venture execution. Both are safe to invoke more frequently than their actual work cadence because HELIS enforces independent persistent due intervals and singleton leases.
+
+Review all unresolved operator work from one read-only queue:
+
+```bash
+helis-operator inbox
+helis-operator show <KEY>
+helis-operator approve <KEY> --confirm <TOKEN>
+helis-operator reject <KEY> --confirm <TOKEN> --reason "<reason>"
+```
+
+The 16-character token is derived from the current request contents. If the destination, message, offer, artifact or other reviewed input changes, the old command fails closed. Approval only moves the existing run to `ready`; the scheduler and its existing gateway policy still control execution.
 
 GTM experiment state can be inspected without model or network calls:
 

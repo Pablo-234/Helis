@@ -109,6 +109,25 @@ helis-scheduler status
 helis-scheduler health
 ```
 
+## Operator inbox
+
+The unified inbox is a read-only view over every unresolved validation, preview publication, checkout, first-contact outreach, self-improvement and venture capability request:
+
+```bash
+helis-operator inbox
+helis-operator inbox --json
+helis-operator show <KEY>
+```
+
+`show` displays the exact consequence, immutable binding, current snapshot token and next command. Decide only the current snapshot:
+
+```bash
+helis-operator approve <KEY> --confirm <TOKEN>
+helis-operator reject <KEY> --confirm <TOKEN> --reason "<audited reason>"
+```
+
+Approval never calls an external gateway. It delegates to the existing domain-specific approval gate and leaves execution to the scheduler. Rejection cancels the exact waiting run and persists the reason. A changed request gets a different token, so a stale approval or rejection command fails closed. Human, deterministic and external-service capability results appear as `input` items and point to the existing `helis-agent supply-capability-result` command; they cannot be mistaken for approvals.
+
 To keep user timers running while logged out on systems using systemd-logind:
 
 ```bash
