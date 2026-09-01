@@ -86,7 +86,12 @@ HELIS can:
 - propose bounded low-authority improvements to HELIS itself in isolated hash-locked workspaces,
 - compare exact baseline and candidate behavior before any git write,
 - require explicit review-branch approval, exact green CI, a second merge approval and fresh pre-merge attestation before a self-improvement can reach the default branch,
-- retain an append-only audit trail in SQLite.
+- retain an append-only audit trail in SQLite,
+- materialize immutable venture-owned child agents from the current architecture/spec snapshot,
+- execute dependent child-agent capabilities through a persistent venture-local DAG,
+- pass only the initial venture input and completed dependency outputs into each child step,
+- share one persisted model/token/cost ceiling across the complete child-agent graph,
+- stop at explicit audited result gates for human, deterministic or external-service capabilities.
 
 ## Quick start
 
@@ -234,11 +239,13 @@ Self-improvement is also split across independent trust boundaries: proposal →
 
 HELIS now covers the constrained autonomous path from recurring market observation through **problem discovery and money-model diversification**, validation, static/manual and one sandboxed dependency-free executable MVP form, bounded B2B GTM, bounded offer/pricing and acquisition-channel experimentation, measured revenue/economics, portfolio scheduling/reallocation and controlled self-improvement.
 
-The next factory layer is intentionally separate: **Bot Architect → Agent Specification Language → Child Agent Factory**. A validated money model should eventually cause HELIS to derive the minimum venture-specific capability graph and build those child agents outside HELIS core rather than turning HELIS itself into a receptionist, sales bot, support bot or other single product.
+The factory layer is now explicit: **Bot Architect → Agent Specification Language → Child Agent Factory → venture-local orchestration**. A validated money model can derive the minimum venture-specific capability graph, materialize immutable reasoning-only child agents and execute their dependency order outside HELIS core rather than turning HELIS itself into a receptionist, sales bot, support bot or other single product.
 
 Still intentionally separate or incomplete:
 
-- Bot Architect / child-agent specification and orchestration,
+- automatic tool/connector construction for child capabilities,
+- automatic packaging and production deployment of a complete child venture,
+- measured child-agent performance lineage and evolution,
 - native direct email/SMS/social transport implementations beyond the narrow operator-configured contact gateway,
 - general arbitrary executable-code builders, dependency installation and networked service sandboxes,
 - direct payment authority,

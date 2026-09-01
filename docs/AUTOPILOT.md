@@ -59,6 +59,24 @@ The venture may use zero AI child agents if deterministic automation, a human st
 service is the better operating design. HELIS itself remains the factory/operator rather than one
 hard-coded child business.
 
+## Venture-local orchestration
+
+Generated child agents can be executed as one persistent capability graph:
+
+```bash
+helis-agent orchestrate <OPPORTUNITY_ID> --task "<venture-local input>" --source-key "<idempotency-key>"
+helis-agent orchestration-status <RUN_ID>
+helis-agent supply-capability-result <RUN_ID> <CAPABILITY_KEY> --output "<observed result>"
+helis-agent orchestration-resume <RUN_ID>
+```
+
+The graph is locked to one opportunity, one architecture snapshot, one spec bundle and the exact
+materialized child artifacts. All child calls share one persisted model/token/cost ceiling. Only
+completed dependency outputs flow forward. Human, deterministic and external-service nodes are
+never fabricated by a language model: the graph stops until an observed result is supplied and
+audited. The current child runtime remains `reasoning_only_v1`, so declared future tools do not
+become executable authority through orchestration.
+
 ## Online-only boundary
 
 Autopilot adds a deterministic filter after model generation. `physical_ops`, `hybrid` and generic
