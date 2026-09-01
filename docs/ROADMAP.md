@@ -148,8 +148,10 @@ Exit criterion: core path met. HELIS may propose and evaluate a bounded low-auth
 - [x] symbolic tool/credential requirements, bounded memory/turn/tool scopes and venture/customer-data isolation policy
 - [x] stale architecture blocks spec generation before a model call; zero-AI architecture produces an empty bundle with zero calls
 - [x] fresh non-empty agent specs are a second autonomous checkpoint before the builder
-- [ ] Child Agent Factory: build isolated venture-owned agents from approved specs rather than hard-coding product bots into HELIS
-- [ ] venture-level multi-agent orchestration with strict tenant/data/credential/resource isolation
+- [x] Child Agent Factory: build isolated venture-owned agents from approved specs rather than hard-coding product bots into HELIS
+- [x] persistent venture-level capability-DAG orchestration with strict venture/artifact/spec/resource isolation
+- [x] explicit audited result gates for human, deterministic and external-service dependencies
+- [x] graph-wide model/token/cost budget that survives orchestration resume
 - [ ] bounded tool/connector factory for missing capabilities
 - [ ] autonomous venture packaging/deployment workflow behind explicit side-effect gates
 - [ ] child-agent performance lineage and bounded evolution from measured economic outcomes

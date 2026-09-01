@@ -16,6 +16,8 @@ from helis.agent_spec_store import AgentSpecStore
 from helis.bot_architect import architecture_input_hash
 from helis.budget import CycleBudget
 from helis.child_agent_factory import ChildAgentFactory
+from helis.child_agent_orchestration_store import ChildAgentOrchestrationStore
+from helis.child_agent_orchestrator import ChildAgentOrchestrator
 from helis.child_agent_runtime import ChildAgentRuntime
 from helis.child_agent_store import ChildAgentArtifactStore
 from helis.child_agent_worker import ChildAgentWorker
@@ -52,6 +54,30 @@ def _worker(
         workspace_root=workspace_root,
         max_model_calls_per_job=max_model_calls,
     )
+
+
+def _orchestrator(
+    engine: HelisEngine,
+    workspace_root: Path,
+) -> ChildAgentOrchestrator:
+    return ChildAgentOrchestrator(
+        engine,
+        OpenAICompatibleProvider.from_env(),
+        workspace_root=workspace_root,
+    )
+
+
+def _print_orchestration(run) -> None:
+    console.print(
+        f"orchestration={run.id} venture={run.opportunity_id} status={run.status.value} "
+        f"model_calls={run.model_calls_used}/{run.max_model_calls} stop={run.stop_reason or '-'}"
+    )
+    for step in run.steps:
+        console.print(
+            f"- {step.capability_key} implementation={step.implementation.value} "
+            f"status={step.status.value} source={step.output_source or '-'} "
+            f"stop={step.stop_reason or '-'}"
+        )
 
 
 def _enqueue_csv(worker: ChildAgentWorker, input_csv: Path) -> int:
@@ -168,6 +194,84 @@ def enqueue(
     engine = _engine(db)
     job = _worker(engine, UUID(artifact_id), workspace_root).enqueue(task)
     console.print(f"enqueued job={job.id} task_hash={job.task_hash[:12]}…")
+
+
+@app.command()
+def orchestrate(
+    opportunity_id: str,
+    task: str = typer.Option(..., help="Initial venture-local task for the capability graph"),
+    source_key: str | None = typer.Option(
+        None,
+        help="Optional idempotency key scoped to this venture",
+    ),
+    max_agent_steps: int = typer.Option(6, min=1, max=6),
+    max_model_calls: int = typer.Option(12, min=1, max=72),
+    max_tokens: int = typer.Option(40_000, min=1),
+    max_model_cost_cents: float = typer.Option(25.0, min=0),
+    workspace_root: Path = Path(".helis/ventures"),
+    db: Path = Path("helis.db"),
+) -> None:
+    """Start and advance one persistent venture-owned capability graph."""
+    engine = _engine(db)
+    orchestrator = _orchestrator(engine, workspace_root)
+    run = orchestrator.start(
+        UUID(opportunity_id),
+        task,
+        source_key=source_key,
+        max_model_calls=max_model_calls,
+        max_tokens=max_tokens,
+        max_model_cost_cents=max_model_cost_cents,
+    )
+    _print_orchestration(orchestrator.advance(run.id, max_agent_steps=max_agent_steps))
+
+
+@app.command("orchestration-resume")
+def orchestration_resume(
+    run_id: str,
+    max_agent_steps: int = typer.Option(6, min=1, max=6),
+    workspace_root: Path = Path(".helis/ventures"),
+    db: Path = Path("helis.db"),
+) -> None:
+    """Resume one persisted orchestration without rebuilding its capability graph."""
+    engine = _engine(db)
+    run = _orchestrator(engine, workspace_root).advance(
+        UUID(run_id),
+        max_agent_steps=max_agent_steps,
+    )
+    _print_orchestration(run)
+
+
+@app.command("orchestration-status")
+def orchestration_status(
+    run_id: str,
+    db: Path = Path("helis.db"),
+) -> None:
+    """Inspect orchestration state without model or network calls."""
+    run = ChildAgentOrchestrationStore(_engine(db).store).get(UUID(run_id))
+    if run is None:
+        console.print("[red]orchestration not found[/]")
+        raise typer.Exit(code=1)
+    _print_orchestration(run)
+
+
+@app.command("supply-capability-result")
+def supply_capability_result(
+    run_id: str,
+    capability_key: str,
+    output: str = typer.Option(..., help="Observed result for a non-AI capability"),
+    source: str = typer.Option("operator", help="Audited origin of the supplied result"),
+    workspace_root: Path = Path(".helis/ventures"),
+    db: Path = Path("helis.db"),
+) -> None:
+    """Supply a human/deterministic/external result; never overrides an AI-agent step."""
+    engine = _engine(db)
+    run = _orchestrator(engine, workspace_root).supply_capability_result(
+        UUID(run_id),
+        capability_key,
+        output,
+        source=source,
+    )
+    _print_orchestration(run)
 
 
 @app.command("enqueue-file")
