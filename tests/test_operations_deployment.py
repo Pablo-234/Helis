@@ -91,6 +91,28 @@ def test_windows_registration_uses_limited_user_and_keeps_secrets_out_of_action(
     assert "HELIS_VALIDATION_GATEWAY_TOKEN" not in registration
 
 
+def test_windows_controlled_pilot_is_confirmed_ordered_and_fail_closed() -> None:
+    pilot = (ROOT / "deploy/windows/Start-HelisControlledPilot.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert "[switch] $ConfirmPublicNetworkReads" in pilot
+    assert "if (-not $ConfirmPublicNetworkReads)" in pilot
+    assert "if ($exitCode -ne 0)" in pilot
+    assert "Register-HelisTasks.ps1" not in pilot
+    expected_steps = [
+        '@("bootstrap")',
+        '@("model-status")',
+        '@("model-smoke")',
+        '@("doctor", "--probe-model")',
+        '@("pilot")',
+        '@("pilot-status")',
+        '@("inbox")',
+    ]
+    positions = [pilot.index(step) for step in expected_steps]
+    assert positions == sorted(positions)
+
+
 def test_scheduler_health_runs_without_model_or_gateway_calls(
     tmp_path,
     monkeypatch,

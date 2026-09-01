@@ -42,21 +42,23 @@ def model_status(
     report = LocalModelInspector(OpenAICompatibleProvider.from_env()).inspect()
     if json_output:
         console.print_json(json.dumps(report.model_dump(mode="json")))
-        return
-    table = Table("Item", "Value")
-    table.add_row("state", report.state.value)
-    table.add_row("endpoint", Text(report.endpoint))
-    table.add_row("configured model", Text(report.configured_model))
-    table.add_row("endpoint reachable", str(report.endpoint_reachable).lower())
-    table.add_row("model available", str(report.model_available).lower())
-    table.add_row("Ollama CLI", Text(report.ollama_cli or "not found"))
-    table.add_row("detail", Text(report.detail))
-    table.add_row("next", Text(report.next_command))
-    console.print(table)
-    if report.state == LocalModelState.READY:
-        console.print("local model inventory: READY", style="bold green")
     else:
-        console.print("local model inventory: BLOCKED", style="bold red")
+        table = Table("Item", "Value")
+        table.add_row("state", report.state.value)
+        table.add_row("endpoint", Text(report.endpoint))
+        table.add_row("configured model", Text(report.configured_model))
+        table.add_row("endpoint reachable", str(report.endpoint_reachable).lower())
+        table.add_row("model available", str(report.model_available).lower())
+        table.add_row("Ollama CLI", Text(report.ollama_cli or "not found"))
+        table.add_row("detail", Text(report.detail))
+        table.add_row("next", Text(report.next_command))
+        console.print(table)
+        if report.state == LocalModelState.READY:
+            console.print("local model inventory: READY", style="bold green")
+        else:
+            console.print("local model inventory: BLOCKED", style="bold red")
+    if report.state != LocalModelState.READY:
+        raise typer.Exit(code=1)
 
 
 @app.command("model-smoke")
@@ -197,27 +199,29 @@ def doctor(
     ).inspect(probe_model=probe_model)
     if json_output:
         console.print_json(json.dumps(report.model_dump(mode="json")))
-        return
-    table = Table("Component", "State", "Required", "Detail")
-    styles = {
-        ReadinessLevel.READY: "green",
-        ReadinessLevel.WARNING: "yellow",
-        ReadinessLevel.BLOCKED: "red",
-    }
-    for item in report.checks:
-        table.add_row(
-            item.label,
-            Text(item.level.value, style=styles[item.level]),
-            "pilot" if item.required_for_pilot else "optional",
-            Text(item.detail),
-        )
-    console.print(table)
-    if report.pilot_ready:
-        console.print("pilot readiness: READY", style="bold green")
     else:
-        console.print("pilot readiness: BLOCKED", style="bold red")
-        for item in report.blocking:
-            console.print(f"  - {item.label}: {item.detail}", markup=False)
+        table = Table("Component", "State", "Required", "Detail")
+        styles = {
+            ReadinessLevel.READY: "green",
+            ReadinessLevel.WARNING: "yellow",
+            ReadinessLevel.BLOCKED: "red",
+        }
+        for item in report.checks:
+            table.add_row(
+                item.label,
+                Text(item.level.value, style=styles[item.level]),
+                "pilot" if item.required_for_pilot else "optional",
+                Text(item.detail),
+            )
+        console.print(table)
+        if report.pilot_ready:
+            console.print("pilot readiness: READY", style="bold green")
+        else:
+            console.print("pilot readiness: BLOCKED", style="bold red")
+            for item in report.blocking:
+                console.print(f"  - {item.label}: {item.detail}", markup=False)
+    if not report.pilot_ready:
+        raise typer.Exit(code=1)
 
 
 @app.command()
