@@ -56,6 +56,8 @@ Before enabling timers or external gateways, prepare and inspect one safe local 
 
 ```bash
 helis-live bootstrap
+helis-live model-status
+helis-live model-smoke
 helis-live doctor --probe-model
 helis-live pilot
 helis-live pilot-status
@@ -65,6 +67,17 @@ helis-operator inbox
 `bootstrap` creates missing directories, the SQLite schema and a conservative Hacker News source configuration. Existing configuration and database files are preserved. Every invocation is audited.
 
 `doctor` checks the source file, writable state paths, local model configuration, optional Docker sandbox, reference timers and gateway configuration. By default it performs no network calls. `--probe-model` makes one uncredentialed `GET /models` request to localhost and never asks for a completion.
+
+`model-status` performs the same metadata-only inventory check in a focused form. It distinguishes:
+
+- `endpoint_down` — start the installed runtime with `ollama serve`, or install Ollama from [the official download page](https://ollama.com/download);
+- `incompatible` — the endpoint answered but did not expose the expected OpenAI-compatible model inventory;
+- `model_missing` — fetch the exact configured model with `ollama pull <HELIS_LLM_MODEL>`;
+- `ready` — the exact model appears in the OpenAI-compatible `/models` inventory.
+
+The default `qwen3.5:9b` tag and its normal `ollama run qwen3.5:9b` command are documented in the [official Ollama model library](https://ollama.com/library/qwen3.5:9b). HELIS never installs Ollama, starts a daemon or downloads a multi-gigabyte model implicitly. Those machine-level actions remain explicit operator commands.
+
+Once inventory is ready, `model-smoke` sends exactly one local chat-completion request with `max_tokens=96`, no credential and no configured token price. It requires the model to return `{"status":"ok"}` as valid JSON. This catches a model that is installed but incompatible with HELIS before a longer pilot consumes time.
 
 The controlled pilot fails closed unless all of the following remain true:
 

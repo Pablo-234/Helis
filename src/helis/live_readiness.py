@@ -7,8 +7,6 @@ from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
-from urllib.parse import urlparse
-from urllib.request import Request, urlopen
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, model_validator
@@ -21,10 +19,14 @@ from helis.autopilot import (
 from helis.domain import AuditEvent, utc_now
 from helis.engine import HelisEngine
 from helis.live_gateway_factory import live_gateways_from_env
+from helis.local_model_runtime import (
+    LocalModelInspector,
+    LocalModelState,
+    is_local_model_endpoint,
+)
 from helis.model_provider import OpenAICompatibleProvider
 from helis.operator_domain import OperatorInboxItem
 from helis.operator_inbox import OperatorInbox
-from helis.policy import ActionKind, ActionRequest, AutonomyPolicy
 from helis.source_registry import SourceRegistry
 from helis.store import HelisStore
 from helis.validation_gateway import ApprovedValidationGateway
@@ -123,45 +125,14 @@ class PilotScanner(Protocol):
 ScannerFactory = Callable[[], PilotScanner]
 
 
-def is_local_model_endpoint(base_url: str) -> bool:
-    parsed = urlparse(base_url)
-    return (
-        parsed.scheme in {"http", "https"}
-        and parsed.hostname in {"localhost", "127.0.0.1", "::1"}
-        and parsed.username is None
-        and parsed.password is None
-    )
-
-
 def probe_local_model_endpoint(
     provider: OpenAICompatibleProvider,
     *,
     timeout_seconds: float = 3.0,
 ) -> tuple[bool, str]:
-    """Probe an uncredentialed local `/models` endpoint; never send a completion."""
-    if not is_local_model_endpoint(provider.base_url):
-        return False, "pilot probes only uncredentialed localhost model endpoints"
-    decision = AutonomyPolicy().evaluate(
-        ActionRequest(
-            kind=ActionKind.NETWORK_READ,
-            description="probe configured local model metadata endpoint",
-        )
-    )
-    if not decision.allowed or decision.requires_approval:
-        return False, f"policy denied model probe: {decision.reason}"
-    request = Request(
-        f"{provider.base_url.rstrip('/')}/models",
-        headers={"Accept": "application/json"},
-        method="GET",
-    )
-    try:
-        with urlopen(request, timeout=timeout_seconds) as response:
-            status = int(getattr(response, "status", 200))
-    except Exception as exc:  # noqa: BLE001 -- readiness reports connection failures
-        return False, f"{type(exc).__name__}: {exc}"
-    if not 200 <= status < 300:
-        return False, f"local model metadata endpoint returned HTTP {status}"
-    return True, f"local model endpoint responded with HTTP {status}; no completion was requested"
+    """Verify that the exact configured model is present; never request a completion."""
+    report = LocalModelInspector(provider).inspect(timeout_seconds=timeout_seconds)
+    return report.state == LocalModelState.READY, f"{report.detail}; next: {report.next_command}"
 
 
 class LiveBootstrapper:
