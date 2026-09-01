@@ -1,97 +1,250 @@
 from __future__ import annotations
 
+import json
 import os
-import shutil
+from pathlib import Path
 
 import typer
 from rich.console import Console
 from rich.table import Table
+from rich.text import Text
 
+from helis.autopilot import AutopilotPolicy
+from helis.engine import HelisEngine
 from helis.live_gateway_factory import live_gateways_from_env
+from helis.live_readiness import (
+    LiveBootstrapper,
+    LivePilotFailure,
+    LivePilotReport,
+    LivePilotRunner,
+    LivePilotStore,
+    LiveReadinessInspector,
+    ReadinessLevel,
+)
 from helis.model_provider import OpenAICompatibleProvider
-from helis.validation_gateway import ApprovedValidationGateway
-from helis.vercel_gateway import VercelCliPreviewGateway
+from helis.source_registry import SourceRegistry
+from helis.store import HelisStore
 
 app = typer.Typer(help="Inspect HELIS readiness for a real zero-to-revenue internet run")
 console = Console()
 
 
-def _yes(value: bool) -> str:
-    return "[green]yes[/]" if value else "[yellow]no[/]"
+def _engine(db: Path) -> HelisEngine:
+    return HelisEngine(HelisStore(db))
+
+
+def _print_pilot(report: LivePilotReport) -> None:
+    if report.autopilot is None:
+        console.print("HELIS CONTROLLED PILOT FAILED", style="bold red")
+        console.print(f"pilot={report.id} error={report.error or '-'}", markup=False)
+        console.print(
+            f"cash_limit={report.cash_limit_cents} "
+            f"external_write_gateways={report.external_write_gateways_enabled}",
+            markup=False,
+        )
+        return
+    discovery = report.autopilot.discovery
+    console.print("HELIS CONTROLLED PILOT COMPLETE", style="bold green")
+    console.print(
+        f"pilot={report.id} stop={report.autopilot.stop_reason.value} "
+        f"cash_limit={report.cash_limit_cents} external_write_gateways="
+        f"{report.external_write_gateways_enabled}",
+        markup=False,
+    )
+    console.print(
+        f"discovery: fetched={discovery.observations_fetched} "
+        f"new={discovery.observations_new} used={discovery.observations_used} "
+        f"discovered={discovery.candidates_discovered} "
+        f"evaluated={discovery.candidates_evaluated} "
+        f"experiments={discovery.experiments_planned}",
+        markup=False,
+    )
+    console.print(
+        f"portfolio={report.autopilot.portfolio_plan_id or '-'} "
+        f"funded={report.autopilot.funded_ventures} "
+        f"advanced={report.autopilot.total_advanced} "
+        f"operator_items={len(report.operator_items)}",
+        markup=False,
+    )
+    if report.autopilot.blockers:
+        console.print("next gates:")
+        for blocker in report.autopilot.blockers:
+            console.print(f"  - {blocker}", markup=False)
+    if report.operator_items:
+        table = Table("Priority", "Type", "Kind", "Venture", "Next command")
+        for item in report.operator_items:
+            table.add_row(
+                str(item.priority),
+                item.request_type.value,
+                item.kind.value,
+                Text(item.venture_title),
+                Text(item.action_command),
+            )
+        console.print(table)
+    else:
+        console.print("operator inbox: no unresolved items")
 
 
 @app.command()
-def doctor() -> None:
-    """Check local configuration without spending, publishing, emailing or calling external APIs."""
-    live = live_gateways_from_env()
-    model = OpenAICompatibleProvider.from_env()
-    validation = ApprovedValidationGateway.from_env()
-
-    rows: list[tuple[str, bool, str]] = []
-    rows.append(("LLM", bool(model.base_url and model.model), f"{model.model} @ {model.base_url}"))
-    for key, gateway in (
-        ("Publication", live.preview),
-        ("Prospecting", live.prospect),
-        ("Outbound email", live.contact),
-        ("Inbound replies", live.contact_result),
-        ("Checkout/payment", live.commerce),
-    ):
-        rows.append(
-            (
-                key,
-                gateway is not None,
-                (
-                    f"{getattr(gateway, 'name', type(gateway).__name__)} → {gateway.safe_destination}"
-                    if gateway is not None
-                    else "not configured"
-                ),
-            )
-        )
-    rows.append(
-        (
-            "External validation",
-            validation is not None,
-            validation.safe_destination if validation is not None else "optional; desk research still works",
-        )
+def bootstrap(
+    config: Path = Path("helis.toml"),
+    db: Path = Path("helis.db"),
+    workspace_root: Path = Path(".helis/workspaces"),
+    self_improvement_root: Path = Path(".helis/self-improvement"),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+) -> None:
+    """Create safe local directories, source config and SQLite schema without overwriting files."""
+    report = LiveBootstrapper(
+        config=config,
+        db=db,
+        workspace_root=workspace_root,
+        self_improvement_root=self_improvement_root,
+    ).run()
+    if json_output:
+        console.print_json(json.dumps(report.model_dump(mode="json")))
+        return
+    table = Table("Item", "Path", "State")
+    table.add_row(
+        "market config",
+        str(report.config),
+        "created" if report.config_created else "preserved",
     )
-
-    if isinstance(live.preview, VercelCliPreviewGateway):
-        executable = shutil.which(live.preview.cli)
-        rows.append(
-            (
-                "Vercel CLI",
-                executable is not None,
-                executable or f"'{live.preview.cli}' not found on PATH",
-            )
-        )
-
-    table = Table("Capability", "Ready", "Selected adapter / detail")
-    for capability, ready, detail in rows:
-        table.add_row(capability, _yes(ready), detail)
+    table.add_row(
+        "database",
+        str(report.database),
+        "created" if report.database_created else "preserved",
+    )
+    table.add_row("venture workspace", str(report.workspace_root), "ready")
+    table.add_row("self-improvement workspace", str(report.self_improvement_root), "ready")
     console.print(table)
+    console.print("bootstrap completed without overwriting existing configuration")
 
-    self_serve_ready = (
-        bool(model.base_url and model.model)
-        and live.preview is not None
-        and live.commerce is not None
-        and (
-            not isinstance(live.preview, VercelCliPreviewGateway)
-            or shutil.which(live.preview.cli) is not None
+
+@app.command()
+def doctor(
+    config: Path = Path("helis.toml"),
+    db: Path = Path("helis.db"),
+    workspace_root: Path = Path(".helis/workspaces"),
+    self_improvement_root: Path = Path(".helis/self-improvement"),
+    probe_model: bool = typer.Option(
+        False,
+        "--probe-model/--no-probe-model",
+        help="GET local /models metadata; never request a completion",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+) -> None:
+    """Inspect pilot readiness; optional probe performs one uncredentialed localhost read."""
+    report = LiveReadinessInspector(
+        OpenAICompatibleProvider.from_env(),
+        config=config,
+        db=db,
+        workspace_root=workspace_root,
+        self_improvement_root=self_improvement_root,
+    ).inspect(probe_model=probe_model)
+    if json_output:
+        console.print_json(json.dumps(report.model_dump(mode="json")))
+        return
+    table = Table("Component", "State", "Required", "Detail")
+    styles = {
+        ReadinessLevel.READY: "green",
+        ReadinessLevel.WARNING: "yellow",
+        ReadinessLevel.BLOCKED: "red",
+    }
+    for item in report.checks:
+        table.add_row(
+            item.label,
+            Text(item.level.value, style=styles[item.level]),
+            "pilot" if item.required_for_pilot else "optional",
+            Text(item.detail),
         )
-    )
-    b2b_ready = (
-        bool(model.base_url and model.model)
-        and live.preview is not None
-        and live.prospect is not None
-        and live.contact is not None
-        and live.contact_result is not None
-    )
-    console.print(f"self-serve live path: {_yes(self_serve_ready)}")
-    console.print(f"B2B live path: {_yes(b2b_ready)}")
-    if self_serve_ready:
-        console.print("[bold green]HELIS has the configured external hands for a self-serve live run.[/]")
+    console.print(table)
+    if report.pilot_ready:
+        console.print("pilot readiness: READY", style="bold green")
     else:
-        console.print("[yellow]Configure the missing publication/commerce prerequisites before live launch.[/]")
+        console.print("pilot readiness: BLOCKED", style="bold red")
+        for item in report.blocking:
+            console.print(f"  - {item.label}: {item.detail}", markup=False)
+
+
+@app.command()
+def pilot(
+    config: Path = Path("helis.toml"),
+    db: Path = Path("helis.db"),
+    workspace_root: Path = Path(".helis/workspaces"),
+    self_improvement_root: Path = Path(".helis/self-improvement"),
+    discovery_model_calls: int = typer.Option(8, min=1, max=20),
+    portfolio_model_calls: int = typer.Option(24, min=4, max=100),
+    max_rounds: int = typer.Option(4, min=1, max=12),
+    probe_model: bool = typer.Option(
+        True,
+        "--probe-model/--skip-model-probe",
+        help="Require the local metadata endpoint before starting",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+) -> None:
+    """Run one bounded zero-cash pilot with every external-write gateway disabled."""
+    LiveBootstrapper(
+        config=config,
+        db=db,
+        workspace_root=workspace_root,
+        self_improvement_root=self_improvement_root,
+    ).run()
+    provider = OpenAICompatibleProvider.from_env()
+    readiness = LiveReadinessInspector(
+        provider,
+        config=config,
+        db=db,
+        workspace_root=workspace_root,
+        self_improvement_root=self_improvement_root,
+    ).inspect(probe_model=probe_model)
+    if not readiness.pilot_ready:
+        reasons = "; ".join(f"{item.label}: {item.detail}" for item in readiness.blocking)
+        raise typer.BadParameter(f"pilot preflight failed: {reasons}")
+    helis = _engine(db)
+    try:
+        report = LivePilotRunner(
+            helis,
+            provider,
+            lambda: SourceRegistry.from_toml(config),
+            workspace_root=workspace_root,
+        ).run(
+            AutopilotPolicy(
+                cash_cents=0,
+                reserve_fraction=0,
+                max_ventures=1,
+                discovery_model_calls=discovery_model_calls,
+                discovery_max_cost_cents=0,
+                portfolio_model_calls=portfolio_model_calls,
+                max_rounds=max_rounds,
+                max_advances_per_round=1,
+            )
+        )
+    except LivePilotFailure as exc:
+        if json_output:
+            console.print_json(json.dumps(exc.report.model_dump(mode="json")))
+        else:
+            _print_pilot(exc.report)
+        raise typer.Exit(code=1) from exc
+    if json_output:
+        console.print_json(json.dumps(report.model_dump(mode="json")))
+        return
+    _print_pilot(report)
+
+
+@app.command("pilot-status")
+def pilot_status(
+    db: Path = Path("helis.db"),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+) -> None:
+    """Show the latest persisted controlled-pilot report without network or model calls."""
+    report = LivePilotStore(_engine(db)).latest()
+    if report is None:
+        console.print("no controlled pilot has completed")
+        return
+    if json_output:
+        console.print_json(json.dumps(report.model_dump(mode="json")))
+        return
+    _print_pilot(report)
 
 
 @app.command("env-example")

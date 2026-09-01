@@ -23,6 +23,18 @@ Defaults:
 
 No business idea is an input to this command.
 
+## Controlled first run
+
+Use the stricter wrapper before a live autopilot run:
+
+```bash
+helis-live bootstrap
+helis-live doctor --probe-model
+helis-live pilot
+```
+
+The wrapper still executes the normal `AutonomousOnlineVentureOperator`, but fixes cash and configured model cost at zero, accepts only an uncredentialed localhost model, limits the portfolio to one venture and omits every external-write gateway. The resulting report and any operator requests are persisted. This mode is intended to prove the complete internal path before granting HELIS real-world hands.
+
 ## Lifecycle
 
 ```text
