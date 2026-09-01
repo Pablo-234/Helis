@@ -275,11 +275,11 @@ Still intentionally separate or incomplete:
 
 ## Running continuously
 
-Reference Linux systemd and cron deployment assets live in `deploy/`. HELIS is intentionally host-woken rather than an unbounded resident `while True` process. One timer wakes market discovery and a separate timer wakes portfolio execution.
+Reference Windows Task Scheduler, Linux systemd and cron deployment assets live in `deploy/`. HELIS is intentionally host-woken rather than an unbounded resident `while True` process. One host schedule wakes market discovery and a separate schedule wakes portfolio execution. `helis-live doctor` checks the native reference schedule on both Windows and Linux without modifying it.
 
 See:
 
-- `docs/OPERATIONS.md` — systemd/cron installation, health checks, restart behavior and logs,
+- `docs/OPERATIONS.md` — Windows Task Scheduler/systemd/cron installation, health checks, restart behavior and logs,
 - `docs/SELF_IMPROVEMENT.md` — controlled self-improvement trust chain,
 - `docs/ROADMAP.md` — capability roadmap,
 - `docs/VALIDATION.md` — validation execution model.

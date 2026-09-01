@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,7 @@ from helis.autopilot import (
     AutopilotStopReason,
 )
 from helis.engine import HelisEngine
+from helis.host_scheduler import HostSchedulerInspector
 from helis.live_readiness import (
     DEFAULT_PILOT_CONFIG,
     LiveBootstrapper,
@@ -81,7 +83,10 @@ def test_doctor_reports_required_blocks_and_optional_warnings(tmp_path: Path) ->
     report = LiveReadinessInspector(
         _provider(),
         **paths,
-        systemd_user_root=tmp_path / "systemd",
+        host_scheduler=HostSchedulerInspector(
+            platform_name="Linux",
+            systemd_user_root=tmp_path / "systemd",
+        ),
     ).inspect()
 
     assert report.pilot_ready is False
@@ -92,11 +97,91 @@ def test_doctor_reports_required_blocks_and_optional_warnings(tmp_path: Path) ->
     ready = LiveReadinessInspector(
         _provider(),
         **paths,
-        systemd_user_root=tmp_path / "systemd",
+        host_scheduler=HostSchedulerInspector(
+            platform_name="Linux",
+            systemd_user_root=tmp_path / "systemd",
+        ),
     ).inspect()
 
     assert ready.pilot_ready is True
     assert not ready.blocking
+
+
+def test_doctor_reads_windows_task_scheduler_without_mutation(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    LiveBootstrapper(**paths).run()
+    commands = []
+
+    def fake_run(command, **kwargs):
+        commands.append((command, kwargs))
+        return subprocess.CompletedProcess(
+            command,
+            0 if command[-1] == "HELIS Discovery" else 1,
+        )
+
+    host_scheduler = HostSchedulerInspector(
+        platform_name="Windows",
+        runner=fake_run,
+    )
+    report = LiveReadinessInspector(
+        _provider(),
+        **paths,
+        host_scheduler=host_scheduler,
+    ).inspect()
+
+    timers = next(item for item in report.checks if item.key == "timers")
+    assert timers.level == ReadinessLevel.WARNING
+    assert timers.detail == "1/2 Windows Task Scheduler wake entries installed"
+    assert [item[0] for item in commands] == [
+        ["schtasks.exe", "/Query", "/TN", "HELIS Discovery"],
+        ["schtasks.exe", "/Query", "/TN", "HELIS Scheduler"],
+    ]
+    assert all(
+        options == {
+            "capture_output": True,
+            "text": True,
+            "check": False,
+            "timeout": 5,
+        }
+        for _, options in commands
+    )
+
+
+def test_doctor_marks_complete_windows_wake_schedule_ready(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    LiveBootstrapper(**paths).run()
+
+    def fake_run(command, **kwargs):
+        return subprocess.CompletedProcess(command, 0)
+
+    report = LiveReadinessInspector(
+        _provider(),
+        **paths,
+        host_scheduler=HostSchedulerInspector(platform_name="Windows", runner=fake_run),
+    ).inspect()
+
+    timers = next(item for item in report.checks if item.key == "timers")
+    assert timers.level == ReadinessLevel.READY
+    assert timers.detail == "2/2 Windows Task Scheduler wake entries installed"
+
+
+def test_doctor_warns_when_windows_task_query_is_unavailable(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    LiveBootstrapper(**paths).run()
+
+    def unavailable(command, **kwargs):
+        raise FileNotFoundError("schtasks.exe missing")
+
+    report = LiveReadinessInspector(
+        _provider(),
+        **paths,
+        host_scheduler=HostSchedulerInspector(platform_name="Windows", runner=unavailable),
+    ).inspect()
+
+    timers = next(item for item in report.checks if item.key == "timers")
+    assert timers.level == ReadinessLevel.WARNING
+    assert "0/2 Windows Task Scheduler wake entries installed" in timers.detail
+    assert "query unavailable: FileNotFoundError" in timers.detail
 
 
 def test_doctor_blocks_remote_model_for_zero_spend_pilot(tmp_path: Path) -> None:
