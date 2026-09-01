@@ -89,6 +89,8 @@ HELIS can:
 - retain an append-only audit trail in SQLite,
 - aggregate every pending side-effect approval and ready non-AI capability input in one operator inbox,
 - require a fresh content-derived confirmation token for every approve/reject decision without executing the side effect itself,
+- bootstrap a non-destructive local runtime and diagnose pilot blockers separately from optional live capabilities,
+- run and persist a localhost-only, credential-free, zero-cash pilot with every external-write gateway omitted,
 - materialize immutable venture-owned child agents from the current architecture/spec snapshot,
 - execute dependent child-agent capabilities through a persistent venture-local DAG,
 - pass only the initial venture input and completed dependency outputs into each child step,
@@ -117,10 +119,15 @@ HELIS_LLM_API_KEY=...
 Then:
 
 ```bash
-helis run
+helis-live bootstrap
+helis-live doctor --probe-model
+helis-live pilot
+helis-live pilot-status
 ```
 
-`helis run` scans markets, performs discovery/evaluation/falsification, plans experiments and executes one safe validation step. The default validation cash budget is **zero**.
+`bootstrap` creates the local database, bounded workspaces and a safe public-source configuration without overwriting existing files. `doctor` distinguishes pilot blockers from optional production capabilities. `pilot` then uses the normal HELIS autopilot with a **localhost-only, credential-free, zero-priced model**, zero cash and every external-write gateway disabled. It may read configured public market sources and write local/audited state, but it cannot contact people, publish, create payment links, deploy or modify HELIS. `pilot-status` recovers the persisted report without network or model calls.
+
+The lower-level `helis run` command remains available for one discovery/evaluation/falsification and validation-planning step.
 
 ### Optional executable MVP sandbox
 

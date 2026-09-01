@@ -50,6 +50,33 @@ helis-scheduler health
 
 Neither health command scans the network, calls the model, contacts a customer, publishes, spends money or mutates a venture.
 
+### First controlled pilot
+
+Before enabling timers or external gateways, prepare and inspect one safe local run:
+
+```bash
+helis-live bootstrap
+helis-live doctor --probe-model
+helis-live pilot
+helis-live pilot-status
+helis-operator inbox
+```
+
+`bootstrap` creates missing directories, the SQLite schema and a conservative Hacker News source configuration. Existing configuration and database files are preserved. Every invocation is audited.
+
+`doctor` checks the source file, writable state paths, local model configuration, optional Docker sandbox, reference timers and gateway configuration. By default it performs no network calls. `--probe-model` makes one uncredentialed `GET /models` request to localhost and never asks for a completion.
+
+The controlled pilot fails closed unless all of the following remain true:
+
+- the model endpoint is localhost;
+- no model API credential is configured;
+- configured input/output token prices and pilot cash are zero;
+- the market configuration parses and has an enabled source;
+- database and workspace paths are writable;
+- external validation, contact, publication, checkout and deployment gateways are not passed into the pilot runtime.
+
+The pilot may read the configured public sources, call the local model and persist normal HELIS lifecycle state. It runs the real bounded online-venture operator, not a simulated business result. Its durable report includes discovery counts, funded ventures, stop reason, blockers and the current operator inbox. The report can be recovered after a terminal disconnect with `helis-live pilot-status`.
+
 ## 2. Recommended: systemd user timers
 
 Install both reference timer pairs:
