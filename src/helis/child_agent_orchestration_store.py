@@ -124,3 +124,10 @@ class ChildAgentOrchestrationStore:
                 (str(opportunity_id),),
             ).fetchall()
         return [ChildAgentOrchestrationRun.model_validate_json(row["payload"]) for row in rows]
+
+    def list_all(self) -> list[ChildAgentOrchestrationRun]:
+        with self.store.connect() as db:
+            rows = db.execute(
+                "SELECT payload FROM child_agent_orchestrations ORDER BY updated_at DESC"
+            ).fetchall()
+        return [ChildAgentOrchestrationRun.model_validate_json(row["payload"]) for row in rows]

@@ -152,6 +152,7 @@ Exit criterion: core path met. HELIS may propose and evaluate a bounded low-auth
 - [x] persistent venture-level capability-DAG orchestration with strict venture/artifact/spec/resource isolation
 - [x] explicit audited result gates for human, deterministic and external-service dependencies
 - [x] graph-wide model/token/cost budget that survives orchestration resume
+- [x] unified hash-confirmed operator inbox for all pending approvals and non-AI result gates
 - [ ] bounded tool/connector factory for missing capabilities
 - [ ] autonomous venture packaging/deployment workflow behind explicit side-effect gates
 - [ ] child-agent performance lineage and bounded evolution from measured economic outcomes
