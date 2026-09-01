@@ -29,6 +29,8 @@ Use the stricter wrapper before a live autopilot run:
 
 ```bash
 helis-live bootstrap
+helis-live model-status
+helis-live model-smoke
 helis-live doctor --probe-model
 helis-live pilot
 ```

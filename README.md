@@ -120,12 +120,14 @@ Then:
 
 ```bash
 helis-live bootstrap
+helis-live model-status
+helis-live model-smoke
 helis-live doctor --probe-model
 helis-live pilot
 helis-live pilot-status
 ```
 
-`bootstrap` creates the local database, bounded workspaces and a safe public-source configuration without overwriting existing files. `doctor` distinguishes pilot blockers from optional production capabilities. `pilot` then uses the normal HELIS autopilot with a **localhost-only, credential-free, zero-priced model**, zero cash and every external-write gateway disabled. It may read configured public market sources and write local/audited state, but it cannot contact people, publish, create payment links, deploy or modify HELIS. `pilot-status` recovers the persisted report without network or model calls.
+`bootstrap` creates the local database, bounded workspaces and a safe public-source configuration without overwriting existing files. `model-status` distinguishes a missing runtime from a missing exact model and prints the next repair command. `model-smoke` makes one localhost-only completion capped at 96 output tokens and verifies the required JSON contract. `doctor` distinguishes pilot blockers from optional production capabilities. `pilot` then uses the normal HELIS autopilot with a **localhost-only, credential-free, zero-priced model**, zero cash and every external-write gateway disabled. It may read configured public market sources and write local/audited state, but it cannot contact people, publish, create payment links, deploy or modify HELIS. `pilot-status` recovers the persisted report without network or model calls.
 
 The lower-level `helis run` command remains available for one discovery/evaluation/falsification and validation-planning step.
 

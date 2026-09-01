@@ -21,6 +21,7 @@ from helis.live_readiness import (
     LiveReadinessInspector,
     ReadinessLevel,
 )
+from helis.local_model_runtime import LocalModelInspector, LocalModelState
 from helis.model_provider import OpenAICompatibleProvider
 from helis.source_registry import SourceRegistry
 from helis.store import HelisStore
@@ -31,6 +32,59 @@ console = Console()
 
 def _engine(db: Path) -> HelisEngine:
     return HelisEngine(HelisStore(db))
+
+
+@app.command("model-status")
+def model_status(
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+) -> None:
+    """Verify the local runtime and exact configured model without requesting a completion."""
+    report = LocalModelInspector(OpenAICompatibleProvider.from_env()).inspect()
+    if json_output:
+        console.print_json(json.dumps(report.model_dump(mode="json")))
+        return
+    table = Table("Item", "Value")
+    table.add_row("state", report.state.value)
+    table.add_row("endpoint", Text(report.endpoint))
+    table.add_row("configured model", Text(report.configured_model))
+    table.add_row("endpoint reachable", str(report.endpoint_reachable).lower())
+    table.add_row("model available", str(report.model_available).lower())
+    table.add_row("Ollama CLI", Text(report.ollama_cli or "not found"))
+    table.add_row("detail", Text(report.detail))
+    table.add_row("next", Text(report.next_command))
+    console.print(table)
+    if report.state == LocalModelState.READY:
+        console.print("local model inventory: READY", style="bold green")
+    else:
+        console.print("local model inventory: BLOCKED", style="bold red")
+
+
+@app.command("model-smoke")
+def model_smoke(
+    timeout_seconds: float = typer.Option(60.0, min=5.0, max=300.0),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+) -> None:
+    """Request one capped localhost completion and verify its JSON contract."""
+    report = LocalModelInspector(OpenAICompatibleProvider.from_env()).smoke(
+        timeout_seconds=timeout_seconds
+    )
+    if json_output:
+        console.print_json(json.dumps(report.model_dump(mode="json")))
+    else:
+        style = "bold green" if report.success else "bold red"
+        console.print(
+            f"local model smoke: {'PASS' if report.success else 'FAIL'}",
+            style=style,
+        )
+        console.print(
+            f"model={report.model} endpoint={report.endpoint} "
+            f"latency={report.latency_seconds:.3f}s status={report.response_status or '-'}",
+            markup=False,
+        )
+        if report.error:
+            console.print(f"error={report.error}", markup=False)
+    if not report.success:
+        raise typer.Exit(code=1)
 
 
 def _print_pilot(report: LivePilotReport) -> None:

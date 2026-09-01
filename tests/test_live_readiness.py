@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 import helis.live_readiness as live_module
+import helis.local_model_runtime as local_model_module
 from helis.autopilot import (
     AutopilotDiscoveryReport,
     AutopilotPolicy,
@@ -148,18 +149,21 @@ def test_local_probe_reads_models_metadata_without_credentials(monkeypatch) -> N
         def __exit__(self, exc_type, exc, traceback):
             return False
 
+        def read(self):
+            return b'{"data":[{"id":"qwen3.5:9b"}]}'
+
     def fake_urlopen(request, *, timeout):
         captured["url"] = request.full_url
         captured["headers"] = dict(request.headers)
         captured["timeout"] = timeout
         return Response()
 
-    monkeypatch.setattr(live_module, "urlopen", fake_urlopen)
+    monkeypatch.setattr(local_model_module, "urlopen", fake_urlopen)
 
     ready, detail = probe_local_model_endpoint(_provider(), timeout_seconds=1.5)
 
     assert ready is True
-    assert "HTTP 200" in detail
+    assert "configured model is present" in detail
     assert captured == {
         "url": "http://localhost:11434/v1/models",
         "headers": {"Accept": "application/json"},

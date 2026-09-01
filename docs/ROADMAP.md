@@ -154,6 +154,7 @@ Exit criterion: core path met. HELIS may propose and evaluate a bounded low-auth
 - [x] graph-wide model/token/cost budget that survives orchestration resume
 - [x] unified hash-confirmed operator inbox for all pending approvals and non-AI result gates
 - [x] bootstrap/readiness doctor and durable localhost-only zero-cash controlled pilot
+- [x] exact local-model inventory diagnosis and one-completion bounded JSON smoke test
 - [ ] bounded tool/connector factory for missing capabilities
 - [ ] autonomous venture packaging/deployment workflow behind explicit side-effect gates
 - [ ] child-agent performance lineage and bounded evolution from measured economic outcomes
