@@ -91,6 +91,23 @@ def test_windows_registration_uses_limited_user_and_keeps_secrets_out_of_action(
     assert "HELIS_VALIDATION_GATEWAY_TOKEN" not in registration
 
 
+def test_env_example_exposes_all_direct_live_adapter_settings_safely() -> None:
+    env_example = (ROOT / "deploy/helis.env.example").read_text(encoding="utf-8")
+
+    expected_settings = [
+        "HELIS_VERCEL_TOKEN",
+        "HELIS_VERCEL_ORG_ID",
+        "HELIS_VERCEL_PROJECT_ID",
+        "HELIS_BRAVE_SEARCH_API_KEY",
+        "HELIS_RESEND_API_KEY",
+        "HELIS_RESEND_INBOUND_DOMAIN",
+        "HELIS_STRIPE_SECRET_KEY",
+    ]
+    for setting in expected_settings:
+        assert f"# {setting}=" in env_example
+    assert '# HELIS_RESEND_FROM="HELIS <hello@your-domain.example>"' in env_example
+
+
 def test_windows_controlled_pilot_is_confirmed_ordered_and_fail_closed() -> None:
     pilot = (ROOT / "deploy/windows/Start-HelisControlledPilot.ps1").read_text(
         encoding="utf-8"
@@ -132,6 +149,34 @@ def test_scheduler_health_runs_without_model_or_gateway_calls(
 
     assert "qwen3.5:9b" in output
     assert "no wake attempts yet" in output
+    assert "health check completed" in output
+
+
+def test_scheduler_health_reports_direct_live_adapter_selection(
+    tmp_path,
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.setenv("HELIS_VERCEL_TOKEN", "vercel-secret")
+    monkeypatch.setenv("HELIS_VERCEL_ORG_ID", "team_helis")
+    monkeypatch.setenv("HELIS_VERCEL_PROJECT_ID", "prj_helis")
+    monkeypatch.setenv("HELIS_BRAVE_SEARCH_API_KEY", "brave-secret")
+    monkeypatch.setenv("HELIS_RESEND_API_KEY", "resend-secret")
+    monkeypatch.setenv("HELIS_RESEND_FROM", "HELIS <hello@example.test>")
+    monkeypatch.setenv("HELIS_RESEND_INBOUND_DOMAIN", "inbound.resend.app")
+    monkeypatch.setenv("HELIS_STRIPE_SECRET_KEY", "stripe-secret")
+
+    health(
+        db=tmp_path / "helis.db",
+        workspace_root=tmp_path / "workspaces",
+    )
+    output = capsys.readouterr().out
+
+    assert "vercel_cli_preview_v1" in output
+    assert "brave_search_v1" in output
+    assert "resend_email_v1" in output
+    assert "resend_inbound_results_v1" in output
+    assert "stripe_payment_links_v1" in output
     assert "health check completed" in output
 
 
