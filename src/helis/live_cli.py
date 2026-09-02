@@ -11,6 +11,7 @@ from rich.text import Text
 
 from helis.autopilot import AutopilotPolicy
 from helis.engine import HelisEngine
+from helis.live_activation import LiveActivationInspector, LiveActivationReport
 from helis.live_gateway_factory import live_gateways_from_env
 from helis.live_readiness import (
     LiveBootstrapper,
@@ -32,6 +33,29 @@ console = Console()
 
 def _engine(db: Path) -> HelisEngine:
     return HelisEngine(HelisStore(db))
+
+
+def _print_activation(report: LiveActivationReport) -> None:
+    table = Table("Component", "State", "Required", "Detail")
+    styles = {
+        ReadinessLevel.READY: "green",
+        ReadinessLevel.WARNING: "yellow",
+        ReadinessLevel.BLOCKED: "red",
+    }
+    for item in report.checks:
+        table.add_row(
+            item.label,
+            Text(item.level.value, style=styles[item.level]),
+            "live" if item.required_for_activation else "optional",
+            Text(item.detail),
+        )
+    console.print(table)
+    if report.activation_ready:
+        console.print("live activation: READY", style="bold green")
+        return
+    console.print("live activation: BLOCKED", style="bold red")
+    for item in report.blocking:
+        console.print(f"  - {item.label}: {item.detail}", markup=False)
 
 
 @app.command("model-status")
@@ -221,6 +245,40 @@ def doctor(
             for item in report.blocking:
                 console.print(f"  - {item.label}: {item.detail}", markup=False)
     if not report.pilot_ready:
+        raise typer.Exit(code=1)
+
+
+@app.command("activation-check")
+def activation_check(
+    config: Path = Path("helis.toml"),
+    db: Path = Path("helis.db"),
+    workspace_root: Path = Path(".helis/workspaces"),
+    self_improvement_root: Path = Path(".helis/self-improvement"),
+    probe_model: bool = typer.Option(
+        True,
+        "--probe-model/--no-probe-model",
+        help="GET localhost model metadata; never call a third-party gateway",
+    ),
+    require_schedule: bool = typer.Option(
+        False,
+        "--require-schedule/--allow-missing-schedule",
+        help="Require both bounded host wake entries to be installed",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+) -> None:
+    """Fail closed unless the complete configured recurring revenue path is available."""
+    report = LiveActivationInspector(
+        OpenAICompatibleProvider.from_env(),
+        config=config,
+        db=db,
+        workspace_root=workspace_root,
+        self_improvement_root=self_improvement_root,
+    ).inspect(probe_model=probe_model, require_schedule=require_schedule)
+    if json_output:
+        console.print_json(json.dumps(report.model_dump(mode="json")))
+    else:
+        _print_activation(report)
+    if not report.activation_ready:
         raise typer.Exit(code=1)
 
 

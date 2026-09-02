@@ -6,6 +6,7 @@ import pytest
 import typer
 
 import helis.live_cli as live_module
+from helis.live_activation import LiveActivationCheck, LiveActivationReport
 from helis.live_readiness import (
     LiveReadinessReport,
     ReadinessCheck,
@@ -111,3 +112,44 @@ def test_doctor_returns_success_when_pilot_is_ready(tmp_path: Path, monkeypatch)
         probe_model=False,
         json_output=True,
     )
+
+
+def test_activation_check_returns_nonzero_when_live_path_is_blocked(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    report = LiveActivationReport(
+        checks=[
+            LiveActivationCheck(
+                key="gateway_contact",
+                label="First contact",
+                level=ReadinessLevel.BLOCKED,
+                detail="contact adapter is missing or incomplete",
+            )
+        ],
+        activation_ready=False,
+    )
+
+    class FakeInspector:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def inspect(self, *, probe_model: bool, require_schedule: bool):
+            assert probe_model is False
+            assert require_schedule is True
+            return report
+
+    monkeypatch.setattr(live_module, "LiveActivationInspector", FakeInspector)
+
+    with pytest.raises(typer.Exit) as captured:
+        live_module.activation_check(
+            config=tmp_path / "helis.toml",
+            db=tmp_path / "helis.db",
+            workspace_root=tmp_path / "workspaces",
+            self_improvement_root=tmp_path / "self-improvement",
+            probe_model=False,
+            require_schedule=True,
+            json_output=True,
+        )
+
+    assert captured.value.exit_code == 1

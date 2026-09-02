@@ -84,11 +84,42 @@ def test_windows_registration_uses_limited_user_and_keeps_secrets_out_of_action(
     assert "IntervalMinutes = 5" in registration
     assert "-LogonType Interactive" in registration
     assert "-RunLevel Limited" in registration
-    assert "-MultipleInstances IgnoreNew" in registration
-    assert "-StartWhenAvailable" in registration
+    assert "StartWhenAvailable = $true" in registration
+    assert 'MultipleInstances = "IgnoreNew"' in registration
     assert 'if ($Replace)' in registration
+    assert 'if ($Disabled)' in registration
+    assert '$settingsArguments["Disable"] = $true' in registration
     assert "HELIS_LLM_API_KEY" not in registration
     assert "HELIS_VALIDATION_GATEWAY_TOKEN" not in registration
+
+
+def test_windows_live_start_is_confirmed_ordered_and_fail_closed() -> None:
+    launcher = (ROOT / "deploy/windows/Start-HelisLive.ps1").read_text(encoding="utf-8")
+
+    assert "[switch] $ConfirmLiveOperations" in launcher
+    assert "if (-not $ConfirmLiveOperations)" in launcher
+    assert '"-Disabled"' in launcher
+    assert "if ($ReplaceTasks)" in launcher
+    assert "Disable-ScheduledTask -TaskName $taskName" in launcher
+    assert "Start-ScheduledTask" not in launcher
+    assert "HELIS_VERCEL_TOKEN" not in launcher
+    assert "HELIS_STRIPE_SECRET_KEY" not in launcher
+    expected_steps = [
+        '-Executable $live -Arguments @("bootstrap")',
+        '-Executable $live -Arguments @("model-status")',
+        '-Executable $live -Arguments @("model-smoke")',
+        '-Executable $live -Arguments @("pilot", "--skip-model-probe")',
+        '-Executable $live -Arguments @("pilot-status")',
+        '-Executable $live -Arguments @("activation-check", "--no-probe-model")',
+        '-Executable $discovery -Arguments @("health")',
+        '-Executable $scheduler -Arguments @("health")',
+        "& $registration @registrationArguments",
+        '"--require-schedule"',
+        "Enable-ScheduledTask -TaskName $taskName",
+        '-Executable $operator -Arguments @("inbox")',
+    ]
+    positions = [launcher.index(step) for step in expected_steps]
+    assert positions == sorted(positions)
 
 
 def test_env_example_exposes_all_direct_live_adapter_settings_safely() -> None:
@@ -98,6 +129,7 @@ def test_env_example_exposes_all_direct_live_adapter_settings_safely() -> None:
         "HELIS_VERCEL_TOKEN",
         "HELIS_VERCEL_ORG_ID",
         "HELIS_VERCEL_PROJECT_ID",
+        "HELIS_VERCEL_CLI",
         "HELIS_BRAVE_SEARCH_API_KEY",
         "HELIS_RESEND_API_KEY",
         "HELIS_RESEND_INBOUND_DOMAIN",

@@ -112,6 +112,7 @@ Exit criterion: met for bounded B2B go-to-market. A venture can progress from re
 - [x] activation-race recovery preserves the prior authoritative plan
 - [x] reference Windows Task Scheduler/systemd/cron host wake deployment
 - [x] recurring scheduler routes the complete configured preview/prospect/contact/result/commerce adapter set
+- [x] fail-closed one-command Windows activation registers disabled, verifies, then enables both wakes
 
 Exit criterion: met for the bounded constrained venture path. HELIS can rank competing ventures, assign scarce money/compute, enforce allocations during execution, select the next eligible funded venture, ingest market outcomes and automatically reallocate only the remaining treasury.
 

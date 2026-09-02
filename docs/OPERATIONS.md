@@ -135,7 +135,7 @@ From Windows PowerShell in the installed repository:
 ```powershell
 .\.venv\Scripts\Activate.ps1
 .\deploy\windows\Start-HelisControlledPilot.ps1 -ConfirmPublicNetworkReads
-.\deploy\windows\Register-HelisTasks.ps1
+.\deploy\windows\Start-HelisLive.ps1 -ConfirmLiveOperations
 helis-live doctor --probe-model
 Get-ScheduledTask -TaskName "HELIS Discovery", "HELIS Scheduler"
 ```
@@ -145,6 +145,11 @@ Run the controlled pilot before registration. It performs the fail-closed sequen
 inbox and stops at the first nonzero exit code. `-ConfirmPublicNetworkReads` explicitly authorizes
 the pilot's configured public-source reads and local-model calls; it does not enable contact,
 publication, payment, deployment or scheduled-task creation.
+
+After the pilot, configure the validation gateway and all five downstream live adapter slots, then
+use `Start-HelisLive.ps1` for strict live activation. `-ConfirmLiveOperations` authorizes bounded
+recurring public reads, local-model calls and execution of actions that were approved separately;
+it does not itself approve any action.
 
 The registration script creates `HELIS Discovery` at a 15-minute host cadence and
 `HELIS Scheduler` at a five-minute host cadence. Their fixed wake commands preserve the same internal
@@ -174,6 +179,7 @@ inspect adapter selection without contacting any provider:
 ```powershell
 .\deploy\windows\Import-HelisEnv.ps1
 helis-live selected
+helis-live activation-check
 helis-scheduler health
 ```
 
@@ -181,6 +187,40 @@ Merely configuring an adapter does not approve its side effect. Publication, che
 first contact remain separate persisted approvals, and every task wake uses those existing gates.
 The scheduler may autonomously perform public research and poll the result of a previously approved
 action, but it cannot manufacture approval from an API key.
+
+### One-command live activation
+
+Once the controlled pilot succeeds, the validation gateway is configured and every downstream live
+adapter above is configured:
+
+```powershell
+.\deploy\windows\Start-HelisLive.ps1 -ConfirmLiveOperations
+```
+
+The launcher performs, in order: bootstrap, local-model inventory, one bounded JSON smoke
+completion, the external-write-disabled controlled pilot and its persisted status,
+`activation-check`, discovery and scheduler health, disabled task registration, a second
+`activation-check --require-schedule`, task enablement and the operator inbox. Registration uses a
+trigger one minute in the future. If any step between registration and enablement fails, both tasks
+remain disabled. Existing tasks are preserved; replace them only deliberately:
+
+```powershell
+.\deploy\windows\Start-HelisLive.ps1 -ConfirmLiveOperations -ReplaceTasks
+```
+
+Pause both loops without deleting their definitions or state:
+
+```powershell
+Disable-ScheduledTask -TaskName "HELIS Discovery", "HELIS Scheduler"
+```
+
+`activation-check` is configuration-only for third-party providers. It requires the complete
+validation, preview, prospect, first-contact, reply-observation and commerce path, validates adapter
+construction and checks that the Vercel CLI is on `PATH`, but does not spend a Brave request or
+contact Vercel, Resend or Stripe. Consequently, it cannot prove that a provider has not revoked a
+credential. Authentication failures surface during a bounded, audited wake and are retained in the
+normal logs. The local-model probe and explicit smoke completion are the only network operations in
+the preflight, and both are restricted to localhost.
 
 Registration preserves any task with the same name. Use `-Replace` only when intentionally
 updating existing HELIS tasks:
