@@ -99,6 +99,17 @@ helis-live pilot-status
 helis-operator inbox
 ```
 
+For a continuous owner-facing view, start the local read-only dashboard from the repository:
+
+```powershell
+.\.venv\Scripts\helis-dashboard.exe serve
+```
+
+It opens `http://127.0.0.1:8765`, reads SQLite in read-only mode and inventories generated artifact
+names without reading their contents. The dashboard has no mutation endpoints; approvals continue
+to require the separate token-bound `helis-operator` commands. Stop only the dashboard with
+`Ctrl+C`; recurring HELIS tasks continue independently.
+
 `model-status`, `model-smoke` and `doctor` return a nonzero process exit code whenever their
 required check is blocked. They can therefore gate scripts without parsing human-readable output.
 

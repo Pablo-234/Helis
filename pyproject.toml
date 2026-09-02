@@ -34,6 +34,7 @@ helis-autopilot = "helis.autopilot_cli:app"
 helis-scheduler = "helis.scheduler_cli:app"
 helis-discovery = "helis.discovery_cli:app"
 helis-self = "helis.self_improvement_cli:app"
+helis-dashboard = "helis.dashboard_cli:app"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
