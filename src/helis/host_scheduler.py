@@ -80,8 +80,8 @@ class HostSchedulerInspector:
             try:
                 result = self.runner(
                     ["schtasks.exe", "/Query", "/TN", task_name],
-                    capture_output=True,
-                    text=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
                     check=False,
                     timeout=5,
                 )
