@@ -138,8 +138,8 @@ def test_doctor_reads_windows_task_scheduler_without_mutation(tmp_path: Path) ->
     ]
     assert all(
         options == {
-            "capture_output": True,
-            "text": True,
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
             "check": False,
             "timeout": 5,
         }
