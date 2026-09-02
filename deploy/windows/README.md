@@ -22,13 +22,32 @@ From Windows PowerShell in the repository:
 New-Item -ItemType Directory -Force "$env:USERPROFILE\.config\helis" | Out-Null
 Copy-Item deploy\helis.env.example "$env:USERPROFILE\.config\helis\helis.env"
 .\deploy\windows\Start-HelisControlledPilot.ps1 -ConfirmPublicNetworkReads
-.\deploy\windows\Register-HelisTasks.ps1
+.\deploy\windows\Start-HelisLive.ps1 -ConfirmLiveOperations
 helis-live doctor --probe-model
 ```
 
 The default paths are `%USERPROFILE%\Helis` and
-`%USERPROFILE%\.config\helis\helis.env`. Pass `-RepoRoot` or `-EnvFile` to the registration script
-when using another layout. Existing tasks are preserved unless `-Replace` is supplied explicitly.
+`%USERPROFILE%\.config\helis\helis.env`. Pass `-RepoRoot` or `-EnvFile` to the launcher or
+registration script when using another layout. Existing tasks are preserved unless `-Replace` or
+the launcher's `-ReplaceTasks` is supplied explicitly.
+
+`Start-HelisLive.ps1` is the strict live path after external validation and all five downstream live
+adapter slots have been configured. It performs bootstrap, local-model inventory and smoke checks,
+an external-write-disabled controlled pilot, configuration-only live activation, both health
+checks, and task registration. Tasks are registered disabled and enabled only after a second
+activation check confirms both schedule entries. Any failure in between leaves both tasks disabled.
+Use `-ReplaceTasks` only to intentionally replace an existing pair.
+
+The activation check does not call Vercel, Brave, Resend or Stripe and therefore cannot prove that
+a provider has not revoked a credential. It checks configuration shape, safe destinations and the
+Vercel CLI executable; actual provider failures are recorded by the bounded wake logs. The launcher
+does not approve publication, contact or checkout work.
+
+Pause live operation without deleting tasks or venture state:
+
+```powershell
+Disable-ScheduledTask -TaskName "HELIS Discovery", "HELIS Scheduler"
+```
 
 The tasks use the current interactive user at the limited run level, so they do not store a Windows
 password and do not run while that user is logged out. Logs are written to `.helis\discovery.log`

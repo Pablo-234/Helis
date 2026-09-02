@@ -134,6 +134,18 @@ parsing console text. On Windows, `deploy/windows/Start-HelisControlledPilot.ps1
 above only after the operator supplies `-ConfirmPublicNetworkReads`; it does not install software,
 download a model or register recurring tasks.
 
+After the controlled pilot and live-adapter configuration, Windows can activate the complete
+recurring path with one explicit command:
+
+```powershell
+.\deploy\windows\Start-HelisLive.ps1 -ConfirmLiveOperations
+```
+
+The launcher smoke-tests the local model, runs the external-write-disabled controlled pilot,
+requires external validation plus all five preview/prospect/contact/reply/commerce adapter slots,
+registers both tasks disabled, verifies their presence, then enables them. A failure leaves both
+tasks disabled. It never grants validation, publication, first-contact or checkout approval.
+
 The lower-level `helis run` command remains available for one discovery/evaluation/falsification and validation-planning step.
 
 ### Optional executable MVP sandbox
@@ -273,7 +285,7 @@ Still intentionally separate or incomplete:
 - automatic tool/connector construction for child capabilities,
 - automatic packaging and production deployment of a complete child venture,
 - measured child-agent performance lineage and evolution,
-- native direct email/SMS/social transport implementations beyond the narrow operator-configured contact gateway,
+- native SMS/social/web-form transport beyond direct Resend email and the generic contact gateway,
 - general arbitrary executable-code builders, dependency installation and networked service sandboxes,
 - direct payment authority,
 - silent production deployment.
@@ -286,6 +298,8 @@ The recurring portfolio scheduler selects the same configured live adapters as t
 autopilot: reviewed Vercel preview publication, Brave public prospect research, approved Resend
 contact/reply observation and approved Stripe checkout/payment observation. Configuration never
 replaces the persisted approval required for publication, first contact or checkout creation.
+`helis-live activation-check` validates the complete configured path without calling third-party
+gateways; on Windows, `Start-HelisLive.ps1` uses that gate before enabling either scheduled task.
 
 See:
 

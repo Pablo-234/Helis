@@ -4,7 +4,9 @@ param(
 
     [string] $EnvFile = (Join-Path $env:USERPROFILE ".config\helis\helis.env"),
 
-    [switch] $Replace
+    [switch] $Replace,
+
+    [switch] $Disabled
 )
 
 Set-StrictMode -Version Latest
@@ -75,10 +77,15 @@ foreach ($spec in $taskSpecs) {
         -At (Get-Date).AddMinutes(1) `
         -RepetitionInterval (New-TimeSpan -Minutes $spec.IntervalMinutes) `
         -RepetitionDuration (New-TimeSpan -Days 3650)
-    $settings = New-ScheduledTaskSettingsSet `
-        -StartWhenAvailable `
-        -MultipleInstances IgnoreNew `
-        -ExecutionTimeLimit (New-TimeSpan -Minutes $spec.ExecutionMinutes)
+    $settingsArguments = @{
+        StartWhenAvailable = $true
+        MultipleInstances = "IgnoreNew"
+        ExecutionTimeLimit = (New-TimeSpan -Minutes $spec.ExecutionMinutes)
+    }
+    if ($Disabled) {
+        $settingsArguments["Disable"] = $true
+    }
+    $settings = New-ScheduledTaskSettingsSet @settingsArguments
 
     $registration = @{
         TaskName = $spec.Name
@@ -95,4 +102,5 @@ foreach ($spec in $taskSpecs) {
     Write-Host "Registered $($spec.Name) for $userId"
 }
 
-Write-Host "HELIS tasks run only while this user is logged on and keep secrets in $resolvedEnv."
+$state = if ($Disabled) { "disabled for preflight" } else { "enabled" }
+Write-Host "HELIS tasks are $state, run only while this user is logged on, and keep secrets in $resolvedEnv."
