@@ -8,7 +8,6 @@ from helis.live_activation import LiveActivationInspector
 from helis.live_readiness import LiveBootstrapper, ReadinessLevel
 from helis.model_provider import OpenAICompatibleProvider
 
-
 LIVE_ENVIRONMENT = [
     "HELIS_VERCEL_TOKEN",
     "HELIS_VERCEL_ORG_ID",
