@@ -192,6 +192,18 @@ helis-operator approve <KEY> --confirm <TOKEN>
 helis-operator reject <KEY> --confirm <TOKEN> --reason "<reason>"
 ```
 
+Open the local owner dashboard to see, in one place, what HELIS has observed, which ventures it is
+considering, their scores and stages, current validation/build/GTM progress, pending approvals,
+recent audited activity and the names of generated workspace files:
+
+```bash
+helis-dashboard serve
+```
+
+The browser view binds only to `127.0.0.1`, refreshes every 30 seconds and is deliberately
+read-only. It never exposes environment variables or file contents and cannot approve, publish,
+contact or spend. Use `helis-dashboard snapshot` for the same credential-free state as JSON.
+
 The 16-character token is derived from the current request contents. If the destination, message, offer, artifact or other reviewed input changes, the old command fails closed. Approval only moves the existing run to `ready`; the scheduler and its existing gateway policy still control execution.
 
 GTM experiment state can be inspected without model or network calls:
