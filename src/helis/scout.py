@@ -29,7 +29,7 @@ class Candidate(BaseModel):
 
 
 class CandidateEnvelope(BaseModel):
-    candidates: list[Candidate] = Field(default_factory=list, max_length=5)
+    candidates: list[Candidate] = Field(default_factory=list, max_length=2)
 
 
 SYSTEM_PROMPT = """You are the HELIS Opportunity + Monetization Scout.
@@ -42,7 +42,7 @@ Evidence rules:
 - If evidence is too weak to support a real problem/customer pair, return no candidate for it.
 
 Business-model rules:
-- For each candidate, propose 2-5 meaningfully different money_models when plausible.
+- Return at most 2 candidates and propose exactly 2 meaningfully different money_models for each.
 - Do NOT assume the solution must be software or even an AI bot.
 - Consider managed services, agent-delivered services, automations, data products, marketplaces,
   software, media, physical/operational services and hybrids when they make economic sense.
@@ -112,7 +112,7 @@ analyst and skeptic later. Do not invent observations, traction, prices or certa
 
 Look specifically for an observed workaround, repeated question, manual workflow, unmet request,
 cost, delay, coordination burden or group trying to achieve an outcome. If at least one supplied
-observation contains such a signal, return 1-3 candidates. Each candidate must cite at least one
+observation contains such a signal, return 1-2 candidates. Each candidate must cite at least one
 exact supplied UUID and include at least two complete, structurally different money_models. Return
 an empty candidates list only when none of the observations supports even a testable hypothesis.
 """

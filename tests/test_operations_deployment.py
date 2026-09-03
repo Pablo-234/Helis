@@ -199,6 +199,7 @@ def test_env_example_exposes_all_direct_live_adapter_settings_safely() -> None:
         assert f"# {setting}=" in env_example
     assert '# HELIS_RESEND_FROM="HELIS <hello@your-domain.example>"' in env_example
     assert "HELIS_LLM_REASONING_EFFORT=none" in env_example
+    assert "HELIS_LLM_TIMEOUT_SECONDS=300" in env_example
 
 
 def test_windows_controlled_pilot_is_confirmed_ordered_and_fail_closed() -> None:

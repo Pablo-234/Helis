@@ -116,13 +116,15 @@ HELIS defaults to an OpenAI-compatible local endpoint at `http://localhost:11434
 HELIS_LLM_BASE_URL=...
 HELIS_LLM_MODEL=...
 HELIS_LLM_REASONING_EFFORT=none
+HELIS_LLM_TIMEOUT_SECONDS=300
 HELIS_LLM_API_KEY=...
 ```
 
 For the default localhost `qwen3.5` model, HELIS automatically uses `reasoning_effort=none` when
 the setting is absent. This keeps bounded JSON calls from exhausting their output allowance on
 reasoning before producing the required final object. Other models and remote providers retain
-their own default unless this setting is explicitly configured.
+their own default unless this setting is explicitly configured. Normal calls allow 300 seconds by
+default; `HELIS_LLM_TIMEOUT_SECONDS` can override that bound.
 
 Then:
 

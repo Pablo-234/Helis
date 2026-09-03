@@ -168,6 +168,15 @@ def test_explicit_empty_reasoning_effort_overrides_local_qwen35_default(monkeypa
     assert OpenAICompatibleProvider.from_env().reasoning_effort is None
 
 
+def test_model_timeout_has_local_default_and_explicit_env_override(monkeypatch) -> None:
+    monkeypatch.delenv("HELIS_LLM_TIMEOUT_SECONDS", raising=False)
+
+    assert OpenAICompatibleProvider.from_env().timeout_seconds == 300
+
+    monkeypatch.setenv("HELIS_LLM_TIMEOUT_SECONDS", "420")
+    assert OpenAICompatibleProvider.from_env().timeout_seconds == 420
+
+
 def test_structured_response_accepts_json_fence_and_rejects_empty_content() -> None:
     assert normalize_json_object('```json\n{"status":"ok"}\n```') == '{"status":"ok"}'
 
