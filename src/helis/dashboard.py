@@ -111,11 +111,13 @@ class DashboardSnapshotBuilder:
         ]
         ventures.sort(key=lambda item: (item["score"] is not None, item["score"] or 0), reverse=True)
         stages = Counter(item["stage"] for item in ventures)
+        discovery = self._latest(db, tables, "discovery_wake_results", "created_at")
+        scheduler = self._latest(db, tables, "scheduler_wake_results", "created_at")
         return {
             "generated_at": _now(),
             "database": str(self.db),
             "status": "ok",
-            "message": self._headline(ventures, approvals),
+            "message": self._headline(ventures, approvals, discovery, scheduler),
             "summary": {
                 "observations": self._count(db, tables, "observations"),
                 "opportunities": len(ventures),
@@ -125,8 +127,8 @@ class DashboardSnapshotBuilder:
                 "pending_approvals": len(approvals),
             },
             "stages": dict(stages),
-            "discovery": self._latest(db, tables, "discovery_wake_results", "created_at"),
-            "scheduler": self._latest(db, tables, "scheduler_wake_results", "created_at"),
+            "discovery": discovery,
+            "scheduler": scheduler,
             "ventures": ventures,
             "approvals": approvals,
             "activity": self._activity(db, tables),
@@ -284,7 +286,23 @@ class DashboardSnapshotBuilder:
         return _json(row["payload"]) if row else None
 
     @staticmethod
-    def _headline(ventures: list[dict[str, Any]], approvals: list[dict[str, Any]]) -> str:
+    def _headline(
+        ventures: list[dict[str, Any]],
+        approvals: list[dict[str, Any]],
+        discovery: dict[str, Any] | None,
+        scheduler: dict[str, Any] | None,
+    ) -> str:
+        failed = next(
+            (
+                (label, item)
+                for label, item in (("odkrywanie", discovery), ("realizacja", scheduler))
+                if item and item.get("disposition") == "failed"
+            ),
+            None,
+        )
+        if failed:
+            label, item = failed
+            return f"Ostatni przebieg ({label}) nie powiódł się: {item.get('reason', 'brak opisu')}"
         if approvals:
             return f"HELIS czeka na {len(approvals)} decyzji właściciela."
         if not ventures:

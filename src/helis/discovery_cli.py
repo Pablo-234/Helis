@@ -9,6 +9,7 @@ from rich.table import Table
 from helis.discovery_wake import (
     DiscoveryRuntime,
     DiscoveryWakeController,
+    DiscoveryWakeDisposition,
     DiscoveryWakePolicy,
     DiscoveryWakeResult,
     DiscoveryWakeStore,
@@ -130,6 +131,8 @@ def wake(
         )
     )
     _print_result(result)
+    if result.disposition == DiscoveryWakeDisposition.FAILED:
+        raise typer.Exit(code=1)
 
 
 @app.command()
@@ -148,6 +151,7 @@ def health(
     table.add_row("config exists", "yes" if config.is_file() else "no")
     table.add_row("LLM endpoint", provider.base_url)
     table.add_row("LLM model", provider.model)
+    table.add_row("LLM reasoning effort", provider.reasoning_effort or "provider default")
 
     if config.is_file():
         try:

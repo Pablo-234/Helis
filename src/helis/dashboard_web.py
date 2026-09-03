@@ -37,6 +37,7 @@ DASHBOARD_HTML = """<!doctype html>
       border-radius:11px}.box small{color:var(--muted);display:block;margin-bottom:4px}ul{padding-left:19px}
     .activity{list-style:none;padding:0}.activity li{border-left:2px solid var(--line);padding:0 0 14px 13px}
     .approval{border-left:3px solid var(--amber);padding:10px 12px;background:#ffc76b0c;margin:8px 0}
+    .box.failed{border:1px solid var(--red);background:#ff7b790a}.box.failed div{color:var(--red)}
     .empty{padding:34px;text-align:center;border:1px dashed var(--line);border-radius:14px;color:var(--muted)}
     button{background:transparent;color:var(--ink);border:1px solid var(--line);border-radius:9px;
       padding:8px 12px;cursor:pointer}button:hover{border-color:var(--green)}code{color:var(--blue)}
@@ -71,6 +72,7 @@ function render(data){el("message").textContent=data.message;el("updated").textC
   clear(el("metrics"));Object.entries(data.summary).forEach(([key,val])=>{const card=txt("div","","metric");card.append(txt("b",val));
     card.append(txt("span",labels[key]||key));el("metrics").append(card)});
   clear(el("loops"));[["Odkrywanie",data.discovery],["Realizacja",data.scheduler]].forEach(([name,item])=>{const box=txt("div","","box");
+    if(item?.disposition==="failed")box.classList.add("failed");
     box.append(txt("small",name));box.append(txt("div",item?`${item.disposition||"—"} · ${item.reason||""}`:"Brak zarejestrowanego przebiegu"));
     if(item?.attempted_at)box.append(txt("small",new Date(item.attempted_at).toLocaleString()));el("loops").append(box)});
   clear(el("approvals"));if(!data.approvals.length)empty(el("approvals"),"Nic nie czeka na Twoją zgodę.");

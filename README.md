@@ -113,8 +113,14 @@ HELIS defaults to an OpenAI-compatible local endpoint at `http://localhost:11434
 ```bash
 HELIS_LLM_BASE_URL=...
 HELIS_LLM_MODEL=...
+HELIS_LLM_REASONING_EFFORT=none
 HELIS_LLM_API_KEY=...
 ```
+
+For the default localhost `qwen3.5` model, HELIS automatically uses `reasoning_effort=none` when
+the setting is absent. This keeps bounded JSON calls from exhausting their output allowance on
+reasoning before producing the required final object. Other models and remote providers retain
+their own default unless this setting is explicitly configured.
 
 Then:
 
@@ -127,7 +133,7 @@ helis-live pilot
 helis-live pilot-status
 ```
 
-`bootstrap` creates the local database, bounded workspaces and a safe public-source configuration without overwriting existing files. `model-status` distinguishes a missing runtime from a missing exact model and prints the next repair command. `model-smoke` makes one localhost-only completion capped at 96 output tokens and verifies the required JSON contract. `doctor` distinguishes pilot blockers from optional production capabilities. `pilot` then uses the normal HELIS autopilot with a **localhost-only, credential-free, zero-priced model**, zero cash and every external-write gateway disabled. It may read configured public market sources and write local/audited state, but it cannot contact people, publish, create payment links, deploy or modify HELIS. `pilot-status` recovers the persisted report without network or model calls.
+`bootstrap` creates the local database, bounded workspaces and a safe public-source configuration without overwriting existing files. `model-status` distinguishes a missing runtime from a missing exact model and prints the next repair command. `model-smoke` makes one localhost-only completion capped at 96 output tokens, uses the same reasoning control as normal calls and verifies the required JSON contract. `doctor` distinguishes pilot blockers from optional production capabilities. `pilot` then uses the normal HELIS autopilot with a **localhost-only, credential-free, zero-priced model**, zero cash and every external-write gateway disabled. It may read configured public market sources and write local/audited state, but it cannot contact people, publish, create payment links, deploy or modify HELIS. `pilot-status` recovers the persisted report without network or model calls.
 
 The readiness commands return nonzero when blocked, so automated launch scripts stop without
 parsing console text. On Windows, `deploy/windows/Start-HelisControlledPilot.ps1` runs the sequence

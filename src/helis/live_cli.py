@@ -71,6 +71,7 @@ def model_status(
         table.add_row("state", report.state.value)
         table.add_row("endpoint", Text(report.endpoint))
         table.add_row("configured model", Text(report.configured_model))
+        table.add_row("reasoning effort", Text(report.reasoning_effort or "provider default"))
         table.add_row("endpoint reachable", str(report.endpoint_reachable).lower())
         table.add_row("model available", str(report.model_available).lower())
         table.add_row("Ollama CLI", Text(report.ollama_cli or "not found"))

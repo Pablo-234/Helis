@@ -69,7 +69,10 @@ cp deploy/helis.env.example ~/.config/helis/helis.env
 chmod 600 ~/.config/helis/helis.env
 ```
 
-Edit `~/.config/helis/helis.env`. The default LLM target is the local OpenAI-compatible endpoint `http://localhost:11434/v1` using `qwen3.5:9b`. External gateways remain separately operator-configured.
+Edit `~/.config/helis/helis.env`. The default LLM target is the local OpenAI-compatible endpoint `http://localhost:11434/v1` using `qwen3.5:9b` with
+`HELIS_LLM_REASONING_EFFORT=none`. When that setting is absent, HELIS applies `none` automatically
+only to a localhost `qwen3.5` model; an explicit setting always wins and other providers keep their
+default. External gateways remain separately operator-configured.
 
 Run both zero-side-effect preflights:
 
@@ -135,7 +138,13 @@ required check is blocked. They can therefore gate scripts without parsing human
 
 The default `qwen3.5:9b` tag and its normal `ollama run qwen3.5:9b` command are documented in the [official Ollama model library](https://ollama.com/library/qwen3.5:9b). HELIS never installs Ollama, starts a daemon or downloads a multi-gigabyte model implicitly. Those machine-level actions remain explicit operator commands.
 
-Once inventory is ready, `model-smoke` sends exactly one local chat-completion request with `max_tokens=96`, no credential and no configured token price. It requires the model to return `{"status":"ok"}` as valid JSON. This catches a model that is installed but incompatible with HELIS before a longer pilot consumes time.
+Once inventory is ready, `model-smoke` sends exactly one local chat-completion request with `max_tokens=96`, no credential and no configured token price. It uses the same configured
+`reasoning_effort` as production calls and requires the model to return `{"status":"ok"}` as a
+valid JSON object. Empty, fenced and malformed responses are classified without echoing response
+contents. This catches an installed but incompatible model before a longer pilot consumes time.
+Ollama documents both the OpenAI-compatible `reasoning_effort` field and the separation of thinking
+from final output in its [compatibility](https://docs.ollama.com/api/openai-compatibility) and
+[thinking](https://docs.ollama.com/capabilities/thinking) references.
 
 The controlled pilot fails closed unless all of the following remain true:
 
@@ -249,7 +258,9 @@ updating existing HELIS tasks:
 .\deploy\windows\Register-HelisTasks.ps1 -Replace
 ```
 
-Logs are written to `.helis\discovery.log` and `.helis\scheduler.log`. `helis-live doctor` queries
+Logs are written to `.helis\discovery.log` and `.helis\scheduler.log`. The Windows wrapper retains
+native stderr in the appropriate log and determines success from the executable exit code, so a
+Python traceback cannot abort log capture prematurely. `helis-live doctor` queries
 task presence read-only through `schtasks.exe`; it does not register, start, stop or modify a task.
 
 ## 3. Recommended on Linux: systemd user timers
