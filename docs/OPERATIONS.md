@@ -296,7 +296,14 @@ helis-discovery wake
 
 So a normal full market scan occurs at most once per hour. More frequent host invocations provide crash recovery after an expired lease without multiplying normal source traffic. Source adapters are isolated individually; one failing feed is recorded while healthy sources can still contribute observations.
 
-After scanning, HELIS always invokes one bounded resumable `HelisCycle`. This matters after a crash: existing unprocessed observations or a pending discovered/evaluated venture can continue even when the latest source scan contains nothing new. When there is genuinely no work, the cycle makes zero model calls.
+After scanning, HELIS always invokes one bounded resumable `HelisCycle`. This matters after a crash:
+existing unprocessed observations or a pending discovered/evaluated venture can continue even when
+the latest source scan contains nothing new. When the first scout pass yields no usable online
+venture, HELIS makes one focused recovery pass that treats candidates as falsifiable hypotheses,
+not validated facts. A still-empty result keeps new observations pending rather than silently
+consuming them. If an older empty result already consumed the queue and no opportunity exists,
+HELIS replays the most recent stored observations. When there is genuinely no evidence or pending
+venture work, the cycle makes zero model calls.
 
 ### Portfolio execution cadence
 

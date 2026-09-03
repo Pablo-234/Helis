@@ -56,6 +56,27 @@ def test_snapshot_prioritizes_latest_failed_loop_and_exposes_safe_reason(tmp_pat
     assert failed.reason in snapshot["message"]
 
 
+def test_snapshot_does_not_describe_zero_candidate_result_as_passive_observation(
+    tmp_path: Path,
+) -> None:
+    db = _database(tmp_path)
+    store = HelisStore(db)
+    result = DiscoveryWakeResult(
+        disposition=DiscoveryWakeDisposition.RAN,
+        reason="scout_returned_no_candidates",
+        attempted_at=datetime(2026, 9, 3, 12, 0, tzinfo=UTC),
+        observations_used=57,
+        candidates_discovered=0,
+    )
+    DiscoveryWakeStore(HelisEngine(store)).save_result(result)
+
+    snapshot = DashboardSnapshotBuilder(db, tmp_path / "workspaces").build()
+
+    assert "przeanalizował 57 sygnałów" in snapshot["message"]
+    assert "nie utworzył pomysłu" in snapshot["message"]
+    assert "obserwuje rynek" not in snapshot["message"]
+
+
 def test_snapshot_joins_owner_relevant_venture_state(tmp_path: Path) -> None:
     db = _database(tmp_path)
     store = HelisStore(db)

@@ -95,14 +95,26 @@ class DiscoveryRuntime:
             max_tokens=policy.max_tokens,
             max_cost_cents=policy.max_cost_cents,
         )
-        cycle = HelisCycle(self.engine, self.provider, budget).run(
+        cycle = HelisCycle(self.engine, self.provider, budget, online_only=True).run(
             observation_limit=policy.observation_limit,
             candidate_limit=policy.candidate_limit,
         )
         completed_at = utc_now()
+        if cycle.candidates_discovered:
+            reason = "discovery_cycle_completed"
+        elif cycle.budget_exhausted:
+            reason = "discovery_budget_exhausted_before_candidate"
+        elif cycle.observations_used:
+            reason = (
+                "scout_returned_no_candidates_after_replay"
+                if cycle.observations_replayed
+                else "scout_returned_no_candidates"
+            )
+        else:
+            reason = "no_observations_to_analyze"
         return DiscoveryWakeResult(
             disposition=DiscoveryWakeDisposition.RAN,
-            reason="discovery_cycle_completed",
+            reason=reason,
             attempted_at=attempted_at,
             completed_at=completed_at,
             observations_fetched=len(scan.observations),

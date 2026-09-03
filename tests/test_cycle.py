@@ -9,11 +9,15 @@ from helis.store import HelisStore
 
 
 class QueueProvider:
-    def __init__(self, responses: list[dict]) -> None:
+    def __init__(self, responses: list[dict | str]) -> None:
         self.responses = list(responses)
+        self.calls = 0
 
     def complete(self, *, system: str, user: str) -> ModelResult:
-        return ModelResult(content=json.dumps(self.responses.pop(0)), prompt_tokens=10, completion_tokens=10)
+        self.calls += 1
+        response = self.responses.pop(0)
+        content = response if isinstance(response, str) else json.dumps(response)
+        return ModelResult(content=content, prompt_tokens=10, completion_tokens=10)
 
 
 def test_cycle_discovers_and_evaluates_evidence_bound_candidate(tmp_path) -> None:
@@ -61,3 +65,127 @@ def test_cycle_discovers_and_evaluates_evidence_bound_candidate(tmp_path) -> Non
     assert report.candidates_evaluated == 1
     assert len(report.ranked) == 1
     assert budget.model_calls == 2
+
+
+def test_empty_scout_pass_gets_one_focused_retry(tmp_path) -> None:
+    engine = HelisEngine(HelisStore(tmp_path / "helis.db"))
+    observation = engine.observe(
+        Observation(text="Teams repeatedly assemble customer reports manually.", source="fixture")
+    )
+    provider = QueueProvider(
+        [
+            {"candidates": []},
+            {
+                "candidates": [
+                    {
+                        "title": "Reporting workflow",
+                        "problem": "Teams repeatedly assemble customer reports manually.",
+                        "customer": "service teams",
+                        "proposed_value": "Reduce repetitive reporting work.",
+                        "supporting_observation_ids": [str(observation.id)],
+                        "tags": ["workflow", "hypothesis"],
+                    }
+                ]
+            },
+            {
+                "dimensions": {},
+                "rationale": ["A directly observed manual workflow."],
+                "uncertainties": ["Willingness to pay is not observed."],
+            },
+        ]
+    )
+
+    report = HelisCycle(
+        engine,
+        provider,
+        CycleBudget(max_model_calls=3, max_tokens=1000),
+    ).run()
+
+    assert provider.calls == 3
+    assert report.candidates_discovered == 1
+    assert report.candidates_evaluated == 1
+
+
+def test_invalid_scout_schema_gets_one_structured_recovery_pass(tmp_path) -> None:
+    engine = HelisEngine(HelisStore(tmp_path / "helis.db"))
+    observation = engine.observe(
+        Observation(text="Teams repeatedly assemble customer reports manually.", source="fixture")
+    )
+    provider = QueueProvider(
+        [
+            '{"candidates": "not-a-list"}',
+            {
+                "candidates": [
+                    {
+                        "title": "Reporting workflow",
+                        "problem": "Teams repeatedly assemble customer reports manually.",
+                        "customer": "service teams",
+                        "proposed_value": "Reduce repetitive reporting work.",
+                        "supporting_observation_ids": [str(observation.id)],
+                    }
+                ]
+            },
+            {"dimensions": {}, "rationale": [], "uncertainties": []},
+        ]
+    )
+
+    report = HelisCycle(
+        engine,
+        provider,
+        CycleBudget(max_model_calls=3, max_tokens=1000),
+    ).run()
+
+    assert provider.calls == 3
+    assert report.candidates_discovered == 1
+    assert report.candidates_evaluated == 1
+
+
+def test_cycle_replays_processed_history_when_no_idea_exists(tmp_path) -> None:
+    engine = HelisEngine(HelisStore(tmp_path / "helis.db"))
+    observation = engine.observe(
+        Observation(text="Teams repeatedly assemble customer reports manually.", source="fixture")
+    )
+    engine.store.mark_observations_processed([observation.id])
+    provider = QueueProvider(
+        [
+            {
+                "candidates": [
+                    {
+                        "title": "Reporting workflow",
+                        "problem": "Teams repeatedly assemble customer reports manually.",
+                        "customer": "service teams",
+                        "proposed_value": "Reduce repetitive reporting work.",
+                        "supporting_observation_ids": [str(observation.id)],
+                    }
+                ]
+            },
+            {"dimensions": {}, "rationale": [], "uncertainties": []},
+        ]
+    )
+
+    report = HelisCycle(
+        engine,
+        provider,
+        CycleBudget(max_model_calls=2, max_tokens=1000),
+    ).run()
+
+    assert report.observations_replayed is True
+    assert report.observations_used == 1
+    assert report.candidates_discovered == 1
+
+
+def test_empty_scout_result_keeps_new_observations_pending(tmp_path) -> None:
+    engine = HelisEngine(HelisStore(tmp_path / "helis.db"))
+    observation = engine.observe(
+        Observation(text="A customer describes a recurring manual workflow.", source="fixture")
+    )
+    provider = QueueProvider([{"candidates": []}, {"candidates": []}])
+
+    report = HelisCycle(
+        engine,
+        provider,
+        CycleBudget(max_model_calls=2, max_tokens=1000),
+    ).run()
+
+    assert report.candidates_discovered == 0
+    assert [item.id for item in engine.store.list_unprocessed_observations()] == [observation.id]

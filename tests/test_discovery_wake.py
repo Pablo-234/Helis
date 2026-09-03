@@ -29,6 +29,15 @@ class FakeProvider:
 
 
 @dataclass(slots=True)
+class EmptyScoutProvider:
+    calls: int = 0
+
+    def complete(self, *, system: str, user: str) -> ModelResult:
+        self.calls += 1
+        return ModelResult(content='{"candidates":[]}', prompt_tokens=10, completion_tokens=5)
+
+
+@dataclass(slots=True)
 class FakeScanner:
     result: RegistryScanResult
     calls: int = 0
@@ -115,6 +124,48 @@ def test_zero_model_capacity_persists_new_observation_for_resume(tmp_path) -> No
     assert provider.calls == 0
     pending = engine.store.list_unprocessed_observations(limit=10)
     assert [item.id for item in pending] == [observation.id]
+
+
+def test_empty_scout_result_is_retried_and_new_observation_stays_pending(tmp_path) -> None:
+    engine = _engine(tmp_path)
+    provider = EmptyScoutProvider()
+    observation = Observation(
+        text="Operators repeatedly complain about a slow manual reconciliation workflow.",
+        source="test-source",
+    )
+    scanner = FakeScanner(RegistryScanResult(observations=[observation]))
+    runtime = DiscoveryRuntime(engine, provider, lambda: scanner)
+    policy = DiscoveryWakePolicy(minimum_interval_seconds=0, max_model_calls=2)
+
+    first = runtime.tick(policy)
+    second = runtime.tick(policy)
+
+    assert first.reason == "scout_returned_no_candidates"
+    assert second.reason == "scout_returned_no_candidates"
+    assert first.model_calls == 2
+    assert second.model_calls == 2
+    assert provider.calls == 4
+    assert [item.id for item in engine.store.list_unprocessed_observations()] == [observation.id]
+
+
+def test_discovery_replays_history_consumed_by_an_older_empty_result(tmp_path) -> None:
+    engine = _engine(tmp_path)
+    provider = EmptyScoutProvider()
+    observation = engine.observe(
+        Observation(text="A repeated manual reconciliation workflow.", source="test-source")
+    )
+    engine.store.mark_observations_processed([observation.id])
+    runtime = DiscoveryRuntime(
+        engine,
+        provider,
+        lambda: FakeScanner(RegistryScanResult()),
+    )
+
+    result = runtime.tick(DiscoveryWakePolicy(minimum_interval_seconds=0, max_model_calls=2))
+
+    assert result.reason == "scout_returned_no_candidates_after_replay"
+    assert result.observations_used == 1
+    assert result.model_calls == 2
 
 
 def test_second_wake_before_due_does_not_run_runtime(tmp_path) -> None:

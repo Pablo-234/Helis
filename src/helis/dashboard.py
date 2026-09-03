@@ -303,6 +303,17 @@ class DashboardSnapshotBuilder:
         if failed:
             label, item = failed
             return f"Ostatni przebieg ({label}) nie powiódł się: {item.get('reason', 'brak opisu')}"
+        if (
+            discovery
+            and discovery.get("disposition") == "ran"
+            and int(discovery.get("observations_used") or 0) > 0
+            and int(discovery.get("candidates_discovered") or 0) == 0
+        ):
+            count = int(discovery.get("observations_used") or 0)
+            return (
+                f"Scout przeanalizował {count} sygnałów, ale nie utworzył pomysłu. "
+                "HELIS ponowi analizę zamiast uznać pusty wynik za sukces."
+            )
         if approvals:
             return f"HELIS czeka na {len(approvals)} decyzji właściciela."
         if not ventures:

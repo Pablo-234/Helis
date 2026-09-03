@@ -34,8 +34,10 @@ HELIS can:
 
 - collect traceable market observations from RSS/Atom, public GitHub issues and Hacker News,
 - periodically wake market discovery from cron/systemd with an independent due interval and crash-safe lease,
-- resume unprocessed discovery/evaluation work after crashes while making zero model calls on genuinely empty cycles,
+- resume unprocessed discovery/evaluation work after crashes, retain signals when scouting produces
+  no usable candidate, and replay stored evidence when an earlier empty result left the idea queue empty,
 - generate venture candidates only when they reference supplied observations,
+- run one focused hypothesis-recovery pass when the initial scout returns no usable online venture,
 - turn one evidence-backed problem into several structurally different money-making models in the **same bounded discovery call**,
 - represent who pays, what is sold, revenue model, delivery model, pricing hypothesis, acquisition wedge, fulfillment, automation roles, human roles, time-to-revenue, target owner effort and test cost explicitly,
 - rank those money models with deterministic pre-validation arithmetic rather than accepting a model-awarded score,
