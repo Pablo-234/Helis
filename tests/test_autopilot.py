@@ -77,19 +77,60 @@ class FilteredThenOnlineProvider:
 
     def complete(self, *, system: str, user: str) -> ModelResult:
         self.calls += 1
-        delivery_model = "physical_ops" if self.calls == 1 else "software"
-        payload = {
-            "candidates": [
-                {
-                    "title": "Repeated reporting workflow pain",
-                    "problem": "Online teams repeatedly assemble operational reports by hand.",
-                    "customer": "small online service teams",
-                    "proposed_value": "Reduce repetitive reporting work.",
-                    "supporting_observation_ids": [str(self.observation_id)],
-                    "money_models": [_money_model("Reporting workflow offer", delivery_model)],
-                }
-            ]
-        }
+        if self.calls == 1:
+            payload = {
+                "candidates": [
+                    {
+                        "title": "Repeated reporting workflow pain",
+                        "problem": "Online teams repeatedly assemble operational reports by hand.",
+                        "customer": "small online service teams",
+                        "proposed_value": "Reduce repetitive reporting work.",
+                        "supporting_observation_ids": [str(self.observation_id)],
+                        "money_models": [
+                            _money_model("Physical reporting equipment", "physical_ops")
+                        ],
+                    }
+                ]
+            }
+        else:
+            payload = {
+                "money_models": [_money_model("Reporting workflow offer", "software")]
+            }
+        return ModelResult(content=json.dumps(payload), prompt_tokens=20, completion_tokens=20)
+
+
+class DecomposedRecoveryProvider:
+    def __init__(self, observation_id: UUID) -> None:
+        self.observation_id = observation_id
+        self.calls = 0
+
+    def complete(self, *, system: str, user: str) -> ModelResult:
+        self.calls += 1
+        if self.calls == 1:
+            payload = {"candidates": []}
+        elif self.calls == 2:
+            payload = {
+                "candidates": [
+                    {
+                        "title": "Repeated reporting workflow pain",
+                        "problem": "Online teams repeatedly assemble operational reports by hand.",
+                        "customer": "small online service teams",
+                        "proposed_value": "Reduce repetitive reporting work.",
+                        "supporting_observation_ids": [str(self.observation_id)],
+                        "money_models": [],
+                    }
+                ]
+            }
+        else:
+            managed = _money_model("Managed reporting service", "managed_service")
+            software = _money_model("Reporting workflow software", "software")
+            software["offer"] = "Self-serve software for recurring digital reports."
+            payload = {
+                "money_models": [
+                    managed,
+                    software,
+                ]
+            }
         return ModelResult(content=json.dumps(payload), prompt_tokens=20, completion_tokens=20)
 
 
@@ -291,6 +332,28 @@ def test_online_only_scout_retries_when_first_pass_has_no_usable_online_model() 
     assert opportunities[0].business_model is not None
     assert opportunities[0].business_model.delivery_model == DeliveryModel.SOFTWARE
     assert provider.calls == 2
+
+
+def test_online_only_scout_decomposes_empty_result_into_problem_then_money_models() -> None:
+    observation = Observation(
+        text="Teams report spending hours assembling recurring reports manually.",
+        source="fixture",
+    )
+    provider = DecomposedRecoveryProvider(observation.id)
+
+    opportunities = OpportunityScout(
+        provider,
+        CycleBudget(max_model_calls=3, max_tokens=1000),
+        online_only=True,
+    ).discover([observation])
+
+    assert provider.calls == 3
+    assert len(opportunities) == 2
+    assert {item.business_model.delivery_model for item in opportunities} == {
+        DeliveryModel.MANAGED_SERVICE,
+        DeliveryModel.SOFTWARE,
+    }
+    assert all(item.evidence[0].observation_id == observation.id for item in opportunities)
 
 
 def test_autopilot_bootstraps_zero_cash_portfolio_with_model_capacity(tmp_path: Path) -> None:

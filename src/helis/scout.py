@@ -32,6 +32,10 @@ class CandidateEnvelope(BaseModel):
     candidates: list[Candidate] = Field(default_factory=list, max_length=2)
 
 
+class MoneyModelEnvelope(BaseModel):
+    money_models: list[BusinessModelHypothesis] = Field(default_factory=list, max_length=3)
+
+
 SYSTEM_PROMPT = """You are the HELIS Opportunity + Monetization Scout.
 Find economically testable customer problems in the supplied observations, then propose structurally
 different ways to make money from solving each problem.
@@ -105,25 +109,53 @@ EMPTY_RESULT_RETRY_PROMPT = """
 
 THE PREVIOUS SCOUT PASS PRODUCED NO USABLE CANDIDATE. This can mean an empty result, invalid
 structured output, missing evidence references or a delivery model rejected by online-only policy.
-Perform one focused recovery pass and return valid JSON in the exact requested schema.
+Perform one focused PROBLEM-EXTRACTION pass. Do not design the solution, pricing or business model
+yet; a separate monetization step will do that.
 A candidate at this stage is a falsifiable BUSINESS HYPOTHESIS, not a validated fact. Weak evidence
 is acceptable for discovery when uncertainty is stated honestly; it will be challenged by the
 analyst and skeptic later. Do not invent observations, traction, prices or certainty.
 
 Look specifically for an observed workaround, repeated question, manual workflow, unmet request,
-cost, delay, coordination burden or group trying to achieve an outcome. If at least one supplied
-observation contains such a signal, return 1-2 candidates. Each candidate must cite at least one
-exact supplied UUID and include at least two complete, structurally different money_models. Return
-an empty candidates list only when none of the observations supports even a testable hypothesis.
+cost, delay, coordination burden or group trying to achieve an outcome. Select the single strongest
+relative signal. If any supplied observation contains a person or organization trying to achieve
+something, return exactly one candidate citing its exact UUID. Use this compact JSON shape:
+{"candidates":[{"title":"...","problem":"...","customer":"...","proposed_value":"...",
+"supporting_observation_ids":["UUID"],"tags":["hypothesis"],"money_models":[]}]}
+Return an empty candidates list only when every supplied observation is empty or entirely unrelated
+to a user, organization, workflow, request, project, cost, delay or desired outcome.
 """
 
 MALFORMED_RESULT_REPAIR_PROMPT = """
 
 THE RECOVERY RESPONSE WAS NOT VALID JSON OR DID NOT MATCH THE REQUIRED SCHEMA.
 This is the final structured-output repair attempt. Return JSON only, with no Markdown, commentary,
-trailing commas or unescaped line breaks. Return exactly one evidence-backed candidate with one
-exact supplied observation UUID and exactly two complete online money_models. Keep every string
-short. If no observation supports a hypothesis, return exactly {"candidates":[]}.
+trailing commas or unescaped line breaks. Return exactly one compact problem candidate with one
+exact supplied observation UUID and an empty money_models list. Keep every string short. Use the
+exact compact shape from the recovery instructions.
+"""
+
+MONEY_MODEL_PROMPT = """You are the HELIS Online Monetization Designer.
+You receive one evidence-bound problem hypothesis. Propose exactly two structurally different ways
+to earn money by solving it entirely online. These are hypotheses for later validation, not facts.
+Do not invent traction or evidence. Prefer a fast-to-sell managed/agent service and a more scalable
+software, automation, data, marketplace, licensing or media model. Use plausible ISO-4217 currency.
+
+Return JSON only in this shape:
+{"money_models":[
+  {"name":"...","payer":"...","offer":"...","value_proposition":"...",
+   "revenue_model":"subscription|retainer|fixed_fee|usage|transaction_fee|success_fee|lead_fee|licensing|marketplace_fee|advertising|other",
+   "delivery_model":"ai_agent_service|managed_service|software|automation|data_product|marketplace|content_media|other",
+   "pricing":{"currency":"USD","low_cents":0,"high_cents":0,"unit":"per ..."},
+   "acquisition_wedge":"...","fulfillment":"...","automation_roles":["..."],
+   "human_roles":["..."],"time_to_first_revenue_days":1,"gross_margin_pct":0,
+   "owner_minutes_per_week_at_scale":0,"test_cost_cents":0,"primary_risks":["..."]}
+]}
+"""
+
+MONEY_MODEL_REPAIR_PROMPT = """
+THE PREVIOUS MONETIZATION RESPONSE WAS EMPTY OR MALFORMED. Return exactly two complete online money
+models in the requested JSON shape. JSON only; use short strings, no Markdown and no trailing commas.
+The numbers are explicitly unvalidated hypotheses, so uncertainty is not a reason to return empty.
 """
 
 ONLINE_DELIVERY_MODELS = frozenset(
@@ -175,22 +207,90 @@ class OpportunityScout:
             opportunities = self._opportunities(envelope, observation_map)
             if opportunities:
                 return opportunities
+            candidates = self._evidence_bound_candidates(envelope, observation_map)
+            if candidates:
+                return self._monetize(candidates[0], observation_map)
+
+        envelope = self._recover_problem_candidate(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        )
+        if envelope is None:
+            return []
+        opportunities = self._opportunities(envelope, observation_map)
+        if opportunities:
+            return opportunities
+        candidates = self._evidence_bound_candidates(envelope, observation_map)
+        return self._monetize(candidates[0], observation_map) if candidates else []
+
+    def _recover_problem_candidate(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+    ) -> CandidateEnvelope | None:
         try:
-            envelope = self._request(
+            return self._request(
                 system=system_prompt + EMPTY_RESULT_RETRY_PROMPT,
                 user=user_prompt,
             )
         except (ModelResponseError, ValidationError):
             try:
-                envelope = self._request(
+                return self._request(
                     system=system_prompt + MALFORMED_RESULT_REPAIR_PROMPT,
                     user=user_prompt,
                 )
             except (ModelResponseError, ValidationError):
                 # The observations stay pending. A later bounded wake can retry them without
                 # turning a model formatting failure into either a lost signal or a fake idea.
+                return None
+
+    @staticmethod
+    def _evidence_bound_candidates(
+        envelope: CandidateEnvelope,
+        observation_map: dict[UUID, Observation],
+    ) -> list[Candidate]:
+        return [
+            candidate
+            for candidate in envelope.candidates
+            if any(item_id in observation_map for item_id in candidate.supporting_observation_ids)
+        ]
+
+    def _monetize(
+        self,
+        candidate: Candidate,
+        observation_map: dict[UUID, Observation],
+    ) -> list[Opportunity]:
+        evidence = [
+            {
+                "id": str(item_id),
+                "text": observation_map[item_id].text,
+                "source": observation_map[item_id].source,
+            }
+            for item_id in candidate.supporting_observation_ids
+            if item_id in observation_map
+        ]
+        user_prompt = "PROBLEM_HYPOTHESIS:\n" + json.dumps(
+            {
+                "candidate": candidate.model_dump(mode="json", exclude={"money_models"}),
+                "supporting_observations": evidence,
+            },
+            ensure_ascii=False,
+        )
+        try:
+            envelope = self._money_request(system=MONEY_MODEL_PROMPT, user=user_prompt)
+        except (ModelResponseError, ValidationError):
+            envelope = None
+        if envelope is None or not envelope.money_models:
+            try:
+                envelope = self._money_request(
+                    system=MONEY_MODEL_PROMPT + MONEY_MODEL_REPAIR_PROMPT,
+                    user=user_prompt,
+                )
+            except (ModelResponseError, ValidationError):
                 return []
-        return self._opportunities(envelope, observation_map)
+        enriched = candidate.model_copy(update={"money_models": envelope.money_models})
+        return self._opportunities(CandidateEnvelope(candidates=[enriched]), observation_map)
 
     def _opportunities(
         self,
@@ -247,3 +347,9 @@ class OpportunityScout:
         result = self.provider.complete(system=system, user=user)
         self.budget.record(result)
         return CandidateEnvelope.model_validate_json(result.content)
+
+    def _money_request(self, *, system: str, user: str) -> MoneyModelEnvelope:
+        self.budget.ensure_call_available()
+        result = self.provider.complete(system=system, user=user)
+        self.budget.record(result)
+        return MoneyModelEnvelope.model_validate_json(result.content)

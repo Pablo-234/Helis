@@ -37,7 +37,8 @@ HELIS can:
 - resume unprocessed discovery/evaluation work after crashes, retain signals when scouting produces
   no usable candidate, and replay stored evidence when an earlier empty result left the idea queue empty,
 - generate venture candidates only when they reference supplied observations,
-- run one focused hypothesis-recovery pass when the initial scout returns no usable online venture,
+- recover an empty scout result by separately selecting one evidence-bound problem and generating
+  two online monetization hypotheses for it,
 - turn one evidence-backed problem into several structurally different money-making models in the **same bounded discovery call**,
 - represent who pays, what is sold, revenue model, delivery model, pricing hypothesis, acquisition wedge, fulfillment, automation roles, human roles, time-to-revenue, target owner effort and test cost explicitly,
 - rank those money models with deterministic pre-validation arithmetic rather than accepting a model-awarded score,
