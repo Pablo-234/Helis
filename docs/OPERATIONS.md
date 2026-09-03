@@ -306,7 +306,9 @@ After scanning, HELIS always invokes one bounded resumable `HelisCycle`. This ma
 existing unprocessed observations or a pending discovered/evaluated venture can continue even when
 the latest source scan contains nothing new. When the first scout pass yields no usable online
 venture, HELIS makes one focused recovery pass that treats candidates as falsifiable hypotheses,
-not validated facts. If that recovery response is malformed, one final compact JSON-only repair
+not validated facts. Recovery deliberately separates selecting one evidence-bound problem from
+designing two online monetization hypotheses, so a small local model does not need to solve both
+tasks in one response. If a recovery response is malformed, one final compact JSON-only repair
 attempt is allowed. A still-empty or repeatedly malformed result keeps new observations pending
 rather than silently consuming them. If an older empty result already consumed the queue and no
 opportunity exists, HELIS replays the most recent stored observations. When there is genuinely no
