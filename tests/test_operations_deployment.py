@@ -93,6 +93,28 @@ def test_windows_registration_uses_limited_user_and_keeps_secrets_out_of_action(
     assert "HELIS_VALIDATION_GATEWAY_TOKEN" not in registration
 
 
+def test_windows_dashboard_shortcut_is_local_and_contains_no_credentials() -> None:
+    installer = (ROOT / "deploy/windows/Install-HelisDashboardShortcut.ps1").read_text(
+        encoding="utf-8"
+    )
+    launcher = (ROOT / "deploy/windows/Start-HelisDashboard.ps1").read_text(encoding="utf-8")
+
+    assert "[System.Environment+SpecialFolder]::DesktopDirectory" in installer
+    assert 'ShortcutName = "HELIS Dashboard"' in installer
+    assert "WScript.Shell" in installer
+    assert "Start-HelisDashboard.ps1" in installer
+    assert "-ExecutionPolicy Bypass" in installer
+    assert "if ((Test-Path -LiteralPath $shortcutPath) -and (-not $Replace))" in installer
+    assert "HELIS_LLM_API_KEY" not in installer
+    assert "HELIS_RESEND_API_KEY" not in installer
+    assert "HELIS_STRIPE_SECRET_KEY" not in installer
+
+    assert ".venv\\Scripts\\helis-dashboard.exe" in launcher
+    assert "serve --port $Port" in launcher
+    assert "127.0.0.1" not in launcher
+    assert "Start-Process" not in launcher
+
+
 def test_windows_live_start_is_confirmed_ordered_and_fail_closed() -> None:
     launcher = (ROOT / "deploy/windows/Start-HelisLive.ps1").read_text(encoding="utf-8")
 
