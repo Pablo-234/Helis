@@ -260,7 +260,9 @@ updating existing HELIS tasks:
 
 Logs are written to `.helis\discovery.log` and `.helis\scheduler.log`. The Windows wrapper retains
 native stderr in the appropriate log and determines success from the executable exit code, so a
-Python traceback cannot abort log capture prematurely. `helis-live doctor` queries
+Python traceback cannot abort log capture prematurely. It also pins redirected Python output to
+UTF-8 for the child process, avoiding regional Windows code-page failures while preserving the
+caller's environment. `helis-live doctor` queries
 task presence read-only through `schtasks.exe`; it does not register, start, stop or modify a task.
 
 ## 3. Recommended on Linux: systemd user timers

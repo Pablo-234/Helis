@@ -75,7 +75,7 @@ def _print_result(result: DiscoveryWakeResult) -> None:
     )
     console.print(
         f"usage: calls={result.model_calls} tokens={result.tokens} "
-        f"cost≈{result.cost_cents:.3f}¢"
+        f"cost_cents={result.cost_cents:.3f}"
     )
 
 
