@@ -26,6 +26,18 @@ Copy-Item deploy\helis.env.example "$env:USERPROFILE\.config\helis\helis.env"
 helis-live doctor --probe-model
 ```
 
+Install a current-user desktop shortcut for the local read-only owner dashboard:
+
+```powershell
+.\deploy\windows\Install-HelisDashboardShortcut.ps1
+```
+
+The shortcut is created in the actual Windows desktop directory returned by the operating system
+(including a redirected OneDrive desktop). It stores only the repository path and localhost port,
+never credentials. Double-clicking it runs `Start-HelisDashboard.ps1`, opens
+`http://127.0.0.1:8765` and keeps a console window available for status and `Ctrl+C`. An existing
+shortcut is preserved unless `-Replace` is supplied explicitly.
+
 The default paths are `%USERPROFILE%\Helis` and
 `%USERPROFILE%\.config\helis\helis.env`. Pass `-RepoRoot` or `-EnvFile` to the launcher or
 registration script when using another layout. Existing tasks are preserved unless `-Replace` or

@@ -110,6 +110,15 @@ names without reading their contents. The dashboard has no mutation endpoints; a
 to require the separate token-bound `helis-operator` commands. Stop only the dashboard with
 `Ctrl+C`; recurring HELIS tasks continue independently.
 
+Create a desktop shortcut without administrator privileges:
+
+```powershell
+.\deploy\windows\Install-HelisDashboardShortcut.ps1
+```
+
+Use `-Replace` only when intentionally updating an existing shortcut. The `.lnk` points to the
+trusted repository launcher and contains no environment values or credentials.
+
 `model-status`, `model-smoke` and `doctor` return a nonzero process exit code whenever their
 required check is blocked. They can therefore gate scripts without parsing human-readable output.
 
