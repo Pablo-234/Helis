@@ -75,7 +75,7 @@ class OpenAICompatibleProvider:
     base_url: str
     model: str
     api_key: str = ""
-    timeout_seconds: int = 120
+    timeout_seconds: int = 300
     input_cost_per_million_tokens: float = 0.0
     output_cost_per_million_tokens: float = 0.0
     reasoning_effort: str | None = None
@@ -97,6 +97,7 @@ class OpenAICompatibleProvider:
             base_url=base_url,
             model=model,
             api_key=os.getenv("HELIS_LLM_API_KEY", ""),
+            timeout_seconds=int(os.getenv("HELIS_LLM_TIMEOUT_SECONDS", "300")),
             input_cost_per_million_tokens=float(os.getenv("HELIS_LLM_INPUT_COST_PER_M", "0")),
             output_cost_per_million_tokens=float(os.getenv("HELIS_LLM_OUTPUT_COST_PER_M", "0")),
             reasoning_effort=reasoning_effort,

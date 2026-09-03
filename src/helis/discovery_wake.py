@@ -26,8 +26,8 @@ class DiscoveryWakeDisposition(StrEnum):
 class DiscoveryWakePolicy(BaseModel):
     minimum_interval_seconds: int = Field(default=3600, ge=0, le=86_400)
     lease_seconds: int = Field(default=900, ge=1, le=86_400)
-    observation_limit: int = Field(default=100, ge=1, le=1000)
-    candidate_limit: int = Field(default=5, ge=1, le=50)
+    observation_limit: int = Field(default=20, ge=1, le=1000)
+    candidate_limit: int = Field(default=2, ge=1, le=50)
     max_model_calls: int = Field(default=8, ge=0, le=100)
     max_tokens: int = Field(default=40_000, ge=0, le=2_000_000)
     max_cost_cents: float = Field(default=25.0, ge=0, le=100_000)

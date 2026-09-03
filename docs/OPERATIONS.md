@@ -72,7 +72,8 @@ chmod 600 ~/.config/helis/helis.env
 Edit `~/.config/helis/helis.env`. The default LLM target is the local OpenAI-compatible endpoint `http://localhost:11434/v1` using `qwen3.5:9b` with
 `HELIS_LLM_REASONING_EFFORT=none`. When that setting is absent, HELIS applies `none` automatically
 only to a localhost `qwen3.5` model; an explicit setting always wins and other providers keep their
-default. External gateways remain separately operator-configured.
+default. Normal model calls allow 300 seconds by default and can be configured with
+`HELIS_LLM_TIMEOUT_SECONDS`. External gateways remain separately operator-configured.
 
 Run both zero-side-effect preflights:
 
@@ -287,14 +288,19 @@ The discovery timer invokes the oneshot roughly every 15 minutes, while HELIS it
 helis-discovery wake
   --minimum-interval-seconds 3600
   --lease-seconds 900
-  --observation-limit 100
-  --candidate-limit 5
+  --observation-limit 20
+  --candidate-limit 2
   --max-model-calls 8
   --max-tokens 40000
   --max-cost-cents 25
 ```
 
-So a normal full market scan occurs at most once per hour. More frequent host invocations provide crash recovery after an expired lease without multiplying normal source traffic. Source adapters are isolated individually; one failing feed is recorded while healthy sources can still contribute observations.
+So a normal full market scan occurs at most once per hour. The brain consumes observations in
+focused batches of 20 and evaluates at most two newly generated venture models per wake; later
+wakes resume the remaining durable backlog. This keeps local 9B inference inside the lease instead
+of forcing one oversized prompt. More frequent host invocations provide crash recovery after an
+expired lease without multiplying normal source traffic. Source adapters are isolated individually;
+one failing feed is recorded while healthy sources can still contribute observations.
 
 After scanning, HELIS always invokes one bounded resumable `HelisCycle`. This matters after a crash:
 existing unprocessed observations or a pending discovered/evaluated venture can continue even when
