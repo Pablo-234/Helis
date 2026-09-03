@@ -57,13 +57,22 @@ if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
 Push-Location -LiteralPath $resolvedRepo
 $exitCode = 1
 $previousErrorActionPreference = $ErrorActionPreference
+$previousPythonIoEncoding = [Environment]::GetEnvironmentVariable("PYTHONIOENCODING", "Process")
 try {
     # Windows PowerShell promotes native stderr to an ErrorRecord. Keep it in the log and
     # decide success from the executable's real exit code instead of aborting before capture.
     $ErrorActionPreference = "Continue"
+    # Redirected Python output otherwise inherits a regional ANSI codec (for example cp1250).
+    # Rich and HELIS may emit Unicode even when the interactive console supports it.
+    $env:PYTHONIOENCODING = "utf-8"
     & $executable @commandArguments *>> $logPath
     $exitCode = $LASTEXITCODE
 } finally {
+    if ($null -eq $previousPythonIoEncoding) {
+        Remove-Item -LiteralPath "Env:PYTHONIOENCODING" -ErrorAction SilentlyContinue
+    } else {
+        $env:PYTHONIOENCODING = $previousPythonIoEncoding
+    }
     $ErrorActionPreference = $previousErrorActionPreference
     Pop-Location
 }

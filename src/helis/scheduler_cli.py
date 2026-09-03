@@ -49,8 +49,8 @@ def _print_report(report: SchedulerTickReport) -> None:
             item.disposition.value,
             f"{item.priority_score:.2f}",
             item.reason,
-            f"{item.model_calls_before}→{item.model_calls_after}",
-            f"{item.available_cash_before}→{item.available_cash_after}",
+            f"{item.model_calls_before}->{item.model_calls_after}",
+            f"{item.available_cash_before}->{item.available_cash_after}",
             str(item.opportunity_id),
         )
     console.print(table)
@@ -194,7 +194,7 @@ def health(
         table.add_row(label, status)
     console.print(table)
     console.print(
-        "[green]health check completed[/] — no model call, external request, approval or spend occurred"
+        "[green]health check completed[/] -- no model call, external request, approval or spend occurred"
     )
 
 

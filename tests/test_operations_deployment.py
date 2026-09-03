@@ -101,6 +101,14 @@ def test_windows_wake_script_keeps_fixed_bounded_contract_and_literal_env_loadin
     assert ".venv\\Scripts\\helis-scheduler.exe" in wake
     assert '$ErrorActionPreference = "Continue"' in wake
     assert "$exitCode = $LASTEXITCODE" in wake
+    assert '$env:PYTHONIOENCODING = "utf-8"' in wake
+    assert 'Remove-Item -LiteralPath "Env:PYTHONIOENCODING"' in wake
+
+    discovery_source = (ROOT / "src/helis/discovery_cli.py").read_text(encoding="utf-8")
+    scheduler_source = (ROOT / "src/helis/scheduler_cli.py").read_text(encoding="utf-8")
+    assert "cost_cents=" in discovery_source
+    assert "≈" not in discovery_source
+    assert "→" not in scheduler_source
 
 
 def test_windows_registration_uses_limited_user_and_keeps_secrets_out_of_action() -> None:
