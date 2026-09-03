@@ -10,7 +10,7 @@
 - [x] evidence-bound opportunity scout
 - [x] evidence-bound venture analyst
 - [x] bounded observe → discover → evaluate cycle
-- [x] RSS + GitHub issue + Hacker News source adapters
+- [x] RSS + GitHub issue + Hacker News story/discussion source adapters
 - [x] configurable source registry
 - [x] cron-safe scheduler wake policy + expiring single-worker lease
 - [x] scheduled source scanning orchestration with an independent discovery lease

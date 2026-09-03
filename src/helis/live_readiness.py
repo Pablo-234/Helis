@@ -40,12 +40,16 @@ name = "HN Ask"
 kind = "hacker_news"
 feed = "ask"
 limit = 40
+comments_per_story = 2
+comment_limit = 40
 
 [[sources]]
 name = "HN Show"
 kind = "hacker_news"
 feed = "show"
 limit = 30
+comments_per_story = 2
+comment_limit = 30
 """
 
 
