@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from helis.budget import CycleBudget
 from helis.domain import (
@@ -14,7 +14,7 @@ from helis.domain import (
     Observation,
     Opportunity,
 )
-from helis.model_provider import ModelProvider
+from helis.model_provider import ModelProvider, ModelResponseError
 from helis.money_model import expand_problem_opportunity
 
 
@@ -101,6 +101,22 @@ Use only delivery_model values that clearly fit remote online delivery; do not u
 hybrid in this mode.
 """
 
+EMPTY_RESULT_RETRY_PROMPT = """
+
+THE PREVIOUS SCOUT PASS PRODUCED NO USABLE CANDIDATE. This can mean an empty result, invalid
+structured output, missing evidence references or a delivery model rejected by online-only policy.
+Perform one focused recovery pass and return valid JSON in the exact requested schema.
+A candidate at this stage is a falsifiable BUSINESS HYPOTHESIS, not a validated fact. Weak evidence
+is acceptable for discovery when uncertainty is stated honestly; it will be challenged by the
+analyst and skeptic later. Do not invent observations, traction, prices or certainty.
+
+Look specifically for an observed workaround, repeated question, manual workflow, unmet request,
+cost, delay, coordination burden or group trying to achieve an outcome. If at least one supplied
+observation contains such a signal, return 1-3 candidates. Each candidate must cite at least one
+exact supplied UUID and include at least two complete, structurally different money_models. Return
+an empty candidates list only when none of the observations supports even a testable hypothesis.
+"""
+
 ONLINE_DELIVERY_MODELS = frozenset(
     {
         DeliveryModel.AI_AGENT_SERVICE,
@@ -129,7 +145,6 @@ class OpportunityScout:
     def discover(self, observations: list[Observation]) -> list[Opportunity]:
         if not observations:
             return []
-        self.budget.ensure_call_available()
 
         observation_map = {item.id: item for item in observations}
         payload = [
@@ -142,13 +157,26 @@ class OpportunityScout:
             for item in observations
         ]
         system_prompt = SYSTEM_PROMPT + (ONLINE_ONLY_PROMPT if self.online_only else "")
-        result = self.provider.complete(
-            system=system_prompt,
-            user="OBSERVATIONS:\n" + json.dumps(payload, ensure_ascii=False),
+        user_prompt = "OBSERVATIONS:\n" + json.dumps(payload, ensure_ascii=False)
+        try:
+            envelope = self._request(system=system_prompt, user=user_prompt)
+        except (ModelResponseError, ValidationError):
+            envelope = None
+        if envelope is not None:
+            opportunities = self._opportunities(envelope, observation_map)
+            if opportunities:
+                return opportunities
+        envelope = self._request(
+            system=system_prompt + EMPTY_RESULT_RETRY_PROMPT,
+            user=user_prompt,
         )
-        self.budget.record(result)
-        envelope = CandidateEnvelope.model_validate_json(result.content)
+        return self._opportunities(envelope, observation_map)
 
+    def _opportunities(
+        self,
+        envelope: CandidateEnvelope,
+        observation_map: dict[UUID, Observation],
+    ) -> list[Opportunity]:
         opportunities: list[Opportunity] = []
         for candidate in envelope.candidates:
             valid_observations = [
@@ -193,3 +221,9 @@ class OpportunityScout:
                 # normally produce explicit money models before an Opportunity is persisted.
                 opportunities.append(problem)
         return opportunities
+
+    def _request(self, *, system: str, user: str) -> CandidateEnvelope:
+        self.budget.ensure_call_available()
+        result = self.provider.complete(system=system, user=user)
+        self.budget.record(result)
+        return CandidateEnvelope.model_validate_json(result.content)

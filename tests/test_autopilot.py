@@ -70,6 +70,29 @@ class ScoutOnlyProvider:
         return ModelResult(content=json.dumps(payload), prompt_tokens=20, completion_tokens=20)
 
 
+class FilteredThenOnlineProvider:
+    def __init__(self, observation_id: UUID) -> None:
+        self.observation_id = observation_id
+        self.calls = 0
+
+    def complete(self, *, system: str, user: str) -> ModelResult:
+        self.calls += 1
+        delivery_model = "physical_ops" if self.calls == 1 else "software"
+        payload = {
+            "candidates": [
+                {
+                    "title": "Repeated reporting workflow pain",
+                    "problem": "Online teams repeatedly assemble operational reports by hand.",
+                    "customer": "small online service teams",
+                    "proposed_value": "Reduce repetitive reporting work.",
+                    "supporting_observation_ids": [str(self.observation_id)],
+                    "money_models": [_money_model("Reporting workflow offer", delivery_model)],
+                }
+            ]
+        }
+        return ModelResult(content=json.dumps(payload), prompt_tokens=20, completion_tokens=20)
+
+
 class ZeroIdeaPipelineProvider:
     """Returns typed model outputs while letting HELIS own all state transitions and arithmetic."""
 
@@ -249,6 +272,25 @@ def test_online_only_scout_deterministically_rejects_physical_money_models() -> 
     assert opportunities[0].business_model.delivery_model == DeliveryModel.SOFTWARE
     assert "online_venture" in opportunities[0].tags
     assert provider.calls == 1
+
+
+def test_online_only_scout_retries_when_first_pass_has_no_usable_online_model() -> None:
+    observation = Observation(
+        text="Teams report spending hours assembling recurring reports manually.",
+        source="fixture",
+    )
+    provider = FilteredThenOnlineProvider(observation.id)
+
+    opportunities = OpportunityScout(
+        provider,
+        CycleBudget(max_model_calls=2, max_tokens=1000),
+        online_only=True,
+    ).discover([observation])
+
+    assert len(opportunities) == 1
+    assert opportunities[0].business_model is not None
+    assert opportunities[0].business_model.delivery_model == DeliveryModel.SOFTWARE
+    assert provider.calls == 2
 
 
 def test_autopilot_bootstraps_zero_cash_portfolio_with_model_capacity(tmp_path: Path) -> None:

@@ -22,6 +22,7 @@ class CycleReport:
     candidates_evaluated: int
     budget_exhausted: bool
     ranked: list[RankedOpportunity]
+    observations_replayed: bool = False
     validation_opportunity_id: UUID | None = None
     validation_reviews: list[ExperimentReview] | None = None
 
@@ -60,6 +61,10 @@ class HelisCycle:
 
     def run(self, *, observation_limit: int = 100, candidate_limit: int = 5) -> CycleReport:
         observations = self.engine.store.list_unprocessed_observations(limit=observation_limit)
+        replayed = False
+        if not observations and not self.engine.store.list_opportunities():
+            observations = self.engine.store.list_observations(limit=observation_limit)
+            replayed = bool(observations)
         generated_count = 0
         exhausted = False
 
@@ -73,11 +78,13 @@ class HelisCycle:
                     0,
                     True,
                     self.engine.ranked_queue(),
+                    observations_replayed=replayed,
                 )
             generated_count = len(generated)
             for candidate in generated:
                 self.engine.ingest(candidate)
-            self.engine.store.mark_observations_processed(item.id for item in observations)
+            if generated:
+                self.engine.store.mark_observations_processed(item.id for item in observations)
 
         pending = [
             opportunity
@@ -118,6 +125,7 @@ class HelisCycle:
             candidates_evaluated=evaluated,
             budget_exhausted=exhausted,
             ranked=self.engine.ranked_queue(),
+            observations_replayed=replayed,
             validation_opportunity_id=validation_target.id if validation_target is not None else None,
             validation_reviews=validation_reviews,
         )
