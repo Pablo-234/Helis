@@ -13,7 +13,7 @@ from urllib.request import Request, urlopen
 from pydantic import BaseModel, Field
 
 from helis.domain import utc_now
-from helis.model_provider import OpenAICompatibleProvider
+from helis.model_provider import OpenAICompatibleProvider, normalize_json_object
 from helis.policy import ActionKind, ActionRequest, AutonomyPolicy
 
 
@@ -29,6 +29,7 @@ class LocalModelReport(BaseModel):
     state: LocalModelState
     endpoint: str = Field(min_length=1, max_length=1000)
     configured_model: str = Field(min_length=1, max_length=300)
+    reasoning_effort: str | None = Field(default=None, max_length=20)
     endpoint_reachable: bool = False
     model_available: bool = False
     available_models: list[str] = Field(default_factory=list, max_length=100)
@@ -80,6 +81,7 @@ class LocalModelInspector:
                 state=LocalModelState.INVALID_CONFIG,
                 endpoint=self.provider.base_url or "missing",
                 configured_model=self.provider.model or "missing",
+                reasoning_effort=self.provider.reasoning_effort,
                 ollama_cli=cli,
                 detail=invalid,
                 next_command="set HELIS_LLM_BASE_URL to http://localhost:11434/v1",
@@ -90,6 +92,7 @@ class LocalModelInspector:
                 state=LocalModelState.INVALID_CONFIG,
                 endpoint=self.provider.base_url,
                 configured_model=self.provider.model,
+                reasoning_effort=self.provider.reasoning_effort,
                 ollama_cli=cli,
                 detail=reason,
                 next_command="review HELIS network-read policy",
@@ -109,6 +112,7 @@ class LocalModelInspector:
                 state=LocalModelState.ENDPOINT_DOWN,
                 endpoint=self.provider.base_url,
                 configured_model=self.provider.model,
+                reasoning_effort=self.provider.reasoning_effort,
                 ollama_cli=cli,
                 detail=f"{type(exc).__name__}: {exc}"[:2000],
                 next_command=next_command,
@@ -123,6 +127,7 @@ class LocalModelInspector:
                 state=LocalModelState.INCOMPATIBLE,
                 endpoint=self.provider.base_url,
                 configured_model=self.provider.model,
+                reasoning_effort=self.provider.reasoning_effort,
                 endpoint_reachable=True,
                 ollama_cli=cli,
                 detail=f"{type(exc).__name__}: {exc}"[:2000],
@@ -142,6 +147,7 @@ class LocalModelInspector:
                 state=LocalModelState.MODEL_MISSING,
                 endpoint=self.provider.base_url,
                 configured_model=self.provider.model,
+                reasoning_effort=self.provider.reasoning_effort,
                 endpoint_reachable=True,
                 available_models=available[:100],
                 ollama_cli=cli,
@@ -152,6 +158,7 @@ class LocalModelInspector:
             state=LocalModelState.READY,
             endpoint=self.provider.base_url,
             configured_model=self.provider.model,
+            reasoning_effort=self.provider.reasoning_effort,
             endpoint_reachable=True,
             model_available=True,
             available_models=available[:100],
@@ -178,22 +185,12 @@ class LocalModelInspector:
                 error=reason,
             )
         payload = json.dumps(
-            {
-                "model": self.provider.model,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": "Return one small JSON object and no prose.",
-                    },
-                    {
-                        "role": "user",
-                        "content": 'Return exactly this JSON meaning: {"status":"ok"}.',
-                    },
-                ],
-                "temperature": 0,
-                "max_tokens": 96,
-                "response_format": {"type": "json_object"},
-            },
+            self.provider.completion_payload(
+                system="Return one small JSON object and no prose.",
+                user='Return exactly this JSON meaning: {"status":"ok"}.',
+                temperature=0,
+                max_tokens=96,
+            ),
             separators=(",", ":"),
         ).encode("utf-8")
         request = Request(
@@ -211,7 +208,7 @@ class LocalModelInspector:
                 raise RuntimeError(f"completion endpoint returned HTTP {status}")
             body = json.loads(raw)
             content = body["choices"][0]["message"]["content"]
-            decoded = json.loads(self._strip_fence(content))
+            decoded = json.loads(normalize_json_object(content))
             if not isinstance(decoded, dict) or decoded.get("status") != "ok":
                 raise ValueError("model did not return the required status object")
         except Exception as exc:  # noqa: BLE001 -- smoke result is a diagnostic artifact
@@ -256,17 +253,6 @@ class LocalModelInspector:
             if isinstance(item, dict) and isinstance(item.get("id"), str)
         ]
         return sorted(set(ids))
-
-    @staticmethod
-    def _strip_fence(content: object) -> str:
-        if not isinstance(content, str):
-            raise TypeError("completion content is not text")
-        stripped = content.strip()
-        if stripped.startswith("```") and stripped.endswith("```"):
-            lines = stripped.splitlines()
-            if len(lines) >= 3:
-                return "\n".join(lines[1:-1]).strip()
-        return stripped
 
     @staticmethod
     def _network_read_allowed(description: str) -> tuple[bool, str]:

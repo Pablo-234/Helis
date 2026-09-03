@@ -1,11 +1,39 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
+from typer.testing import CliRunner
+
+from helis import discovery_cli
 from helis.discovery_cli import health as discovery_health
+from helis.discovery_wake import DiscoveryWakeDisposition, DiscoveryWakeResult
 from helis.scheduler_cli import health
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_discovery_wake_cli_returns_nonzero_for_persisted_failure(monkeypatch) -> None:
+    failed = DiscoveryWakeResult(
+        disposition=DiscoveryWakeDisposition.FAILED,
+        reason="ModelResponseError: empty final content",
+        attempted_at=datetime(2026, 9, 3, 12, 0, tzinfo=UTC),
+    )
+
+    class Controller:
+        def __init__(self, engine, runtime) -> None:
+            pass
+
+        def wake(self, policy):
+            return failed
+
+    monkeypatch.setattr(discovery_cli, "_runtime", lambda db, config: (object(), object()))
+    monkeypatch.setattr(discovery_cli, "DiscoveryWakeController", Controller)
+
+    result = CliRunner().invoke(discovery_cli.app, ["wake"])
+
+    assert result.exit_code == 1
+    assert "disposition=failed" in result.output
 
 
 def test_systemd_and_cron_assets_keep_safe_wake_contract() -> None:
@@ -71,6 +99,8 @@ def test_windows_wake_script_keeps_fixed_bounded_contract_and_literal_env_loadin
     assert "--max-advances\", \"2" in wake
     assert ".venv\\Scripts\\helis-discovery.exe" in wake
     assert ".venv\\Scripts\\helis-scheduler.exe" in wake
+    assert '$ErrorActionPreference = "Continue"' in wake
+    assert "$exitCode = $LASTEXITCODE" in wake
 
 
 def test_windows_registration_uses_limited_user_and_keeps_secrets_out_of_action() -> None:
@@ -160,6 +190,7 @@ def test_env_example_exposes_all_direct_live_adapter_settings_safely() -> None:
     for setting in expected_settings:
         assert f"# {setting}=" in env_example
     assert '# HELIS_RESEND_FROM="HELIS <hello@your-domain.example>"' in env_example
+    assert "HELIS_LLM_REASONING_EFFORT=none" in env_example
 
 
 def test_windows_controlled_pilot_is_confirmed_ordered_and_fail_closed() -> None:

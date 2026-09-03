@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import threading
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
@@ -10,7 +11,13 @@ import pytest
 
 from helis.dashboard import DashboardSnapshotBuilder
 from helis.dashboard_web import dashboard_server
+from helis.discovery_wake import (
+    DiscoveryWakeDisposition,
+    DiscoveryWakeResult,
+    DiscoveryWakeStore,
+)
 from helis.domain import Evidence, EvidenceKind, Opportunity, Scorecard, ScoreDimensions
+from helis.engine import HelisEngine
 from helis.store import HelisStore
 
 
@@ -30,6 +37,23 @@ def test_empty_snapshot_explains_that_discovery_is_still_running(tmp_path: Path)
     assert snapshot["summary"]["pending_approvals"] == 0
     assert snapshot["ventures"] == []
     assert "nie wybrał jeszcze" in snapshot["message"]
+
+
+def test_snapshot_prioritizes_latest_failed_loop_and_exposes_safe_reason(tmp_path: Path) -> None:
+    db = _database(tmp_path)
+    store = HelisStore(db)
+    failed = DiscoveryWakeResult(
+        disposition=DiscoveryWakeDisposition.FAILED,
+        reason="ModelResponseError: model returned empty final content",
+        attempted_at=datetime(2026, 9, 3, 12, 0, tzinfo=UTC),
+    )
+    DiscoveryWakeStore(HelisEngine(store)).save_result(failed)
+
+    snapshot = DashboardSnapshotBuilder(db, tmp_path / "workspaces").build()
+
+    assert snapshot["discovery"]["disposition"] == "failed"
+    assert "nie powiódł się" in snapshot["message"]
+    assert failed.reason in snapshot["message"]
 
 
 def test_snapshot_joins_owner_relevant_venture_state(tmp_path: Path) -> None:

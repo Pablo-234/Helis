@@ -167,6 +167,21 @@ def test_runtime_failure_releases_lease_for_next_wake(tmp_path) -> None:
     assert succeeding.calls == 1
 
 
+def test_runtime_failure_is_bounded_and_persisted_even_when_detail_is_huge(tmp_path) -> None:
+    engine = _engine(tmp_path)
+    runtime = FakeRuntime(error=RuntimeError("sensitive detail " * 500))
+    controller = DiscoveryWakeController(engine, runtime)  # type: ignore[arg-type]
+
+    failed = controller.wake(DiscoveryWakePolicy(minimum_interval_seconds=0))
+    persisted = DiscoveryWakeStore(engine).latest_result()
+
+    assert failed.disposition == DiscoveryWakeDisposition.FAILED
+    assert len(failed.reason) == 1000
+    assert failed.reason.endswith("...")
+    assert persisted is not None
+    assert persisted.reason == failed.reason
+
+
 def test_discovery_wakes_are_audited(tmp_path) -> None:
     engine = _engine(tmp_path)
     runtime = FakeRuntime()

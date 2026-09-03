@@ -138,6 +138,12 @@ def _parse_time(value: str | None) -> datetime | None:
     return _utc(datetime.fromisoformat(value)) if value else None
 
 
+def _safe_failure_reason(exc: Exception) -> str:
+    message = " ".join(str(exc).split()) or "no error detail"
+    reason = f"{type(exc).__name__}: {message}"
+    return reason if len(reason) <= 1000 else reason[:997] + "..."
+
+
 class DiscoveryWakeStore:
     lease_name = "market-discovery"
 
@@ -341,9 +347,11 @@ class DiscoveryWakeController:
                     result_id=None,
                     mark_completed=False,
                 )
-                failure_reason = f"{type(exc).__name__}: {exc}"
+                failure_reason = _safe_failure_reason(exc)
             except DiscoveryWakeLeaseLost as lease_exc:
-                failure_reason = f"{type(exc).__name__}: {exc}; {lease_exc}"
+                failure_reason = _safe_failure_reason(
+                    RuntimeError(f"{_safe_failure_reason(exc)}; {lease_exc}")
+                )
             result = DiscoveryWakeResult(
                 disposition=DiscoveryWakeDisposition.FAILED,
                 owner_id=owner_id,

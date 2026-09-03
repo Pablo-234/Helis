@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 from urllib.error import URLError
 
+import pytest
+
 from helis.local_model_runtime import LocalModelInspector, LocalModelState
-from helis.model_provider import OpenAICompatibleProvider
+from helis.model_provider import ModelResponseError, OpenAICompatibleProvider, normalize_json_object
 
 
 class Response:
@@ -121,6 +123,58 @@ def test_smoke_uses_one_capped_completion_and_validates_json() -> None:
     assert "Authorization" not in completion.headers
 
 
+def test_reasoning_effort_is_forwarded_to_smoke_and_normal_completions() -> None:
+    provider = _provider(reasoning_effort="NONE")
+
+    smoke_payload = provider.completion_payload(
+        system="system",
+        user="user",
+        temperature=0,
+        max_tokens=96,
+    )
+    normal_payload = provider.completion_payload(system="system", user="user")
+
+    assert provider.reasoning_effort == "none"
+    assert smoke_payload["reasoning_effort"] == "none"
+    assert normal_payload["reasoning_effort"] == "none"
+
+
+def test_reasoning_effort_is_optional_and_rejects_unknown_values() -> None:
+    payload = _provider().completion_payload(system="system", user="user")
+
+    assert "reasoning_effort" not in payload
+    with pytest.raises(ValueError, match="HELIS_LLM_REASONING_EFFORT"):
+        _provider(reasoning_effort="turbo")
+
+
+def test_default_local_qwen35_env_disables_reasoning_without_affecting_other_models(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("HELIS_LLM_REASONING_EFFORT", raising=False)
+    monkeypatch.setenv("HELIS_LLM_BASE_URL", "http://localhost:11434/v1")
+    monkeypatch.setenv("HELIS_LLM_MODEL", "qwen3.5:9b")
+
+    assert OpenAICompatibleProvider.from_env().reasoning_effort == "none"
+
+    monkeypatch.setenv("HELIS_LLM_MODEL", "another-model")
+    assert OpenAICompatibleProvider.from_env().reasoning_effort is None
+
+
+def test_explicit_empty_reasoning_effort_overrides_local_qwen35_default(monkeypatch) -> None:
+    monkeypatch.setenv("HELIS_LLM_BASE_URL", "http://localhost:11434/v1")
+    monkeypatch.setenv("HELIS_LLM_MODEL", "qwen3.5:9b")
+    monkeypatch.setenv("HELIS_LLM_REASONING_EFFORT", "")
+
+    assert OpenAICompatibleProvider.from_env().reasoning_effort is None
+
+
+def test_structured_response_accepts_json_fence_and_rejects_empty_content() -> None:
+    assert normalize_json_object('```json\n{"status":"ok"}\n```') == '{"status":"ok"}'
+
+    with pytest.raises(ModelResponseError, match="HELIS_LLM_REASONING_EFFORT=none"):
+        normalize_json_object("  ")
+
+
 def test_smoke_reports_malformed_model_contract() -> None:
     responses = [
         Response({"data": [{"id": "qwen3.5:9b"}]}),
@@ -134,7 +188,25 @@ def test_smoke_reports_malformed_model_contract() -> None:
     ).smoke()
 
     assert report.success is False
-    assert report.error is not None and "JSONDecodeError" in report.error
+    assert report.error is not None and "ModelResponseError" in report.error
+    assert "invalid JSON" in report.error
+
+
+def test_smoke_explains_empty_final_content_from_thinking_model() -> None:
+    responses = [
+        Response({"data": [{"id": "qwen3.5:9b"}]}),
+        Response({"choices": [{"message": {"content": ""}}]}),
+    ]
+
+    report = LocalModelInspector(
+        _provider(),
+        opener=lambda request, timeout: responses.pop(0),
+        which=lambda name: "/usr/bin/ollama",
+    ).smoke()
+
+    assert report.success is False
+    assert report.error is not None
+    assert "HELIS_LLM_REASONING_EFFORT=none" in report.error
 
 
 def test_remote_or_credentialed_config_fails_before_network() -> None:

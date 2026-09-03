@@ -55,10 +55,16 @@ if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
 }
 
 Push-Location -LiteralPath $resolvedRepo
+$exitCode = 1
+$previousErrorActionPreference = $ErrorActionPreference
 try {
+    # Windows PowerShell promotes native stderr to an ErrorRecord. Keep it in the log and
+    # decide success from the executable's real exit code instead of aborting before capture.
+    $ErrorActionPreference = "Continue"
     & $executable @commandArguments *>> $logPath
     $exitCode = $LASTEXITCODE
 } finally {
+    $ErrorActionPreference = $previousErrorActionPreference
     Pop-Location
 }
 
