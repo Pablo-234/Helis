@@ -117,6 +117,15 @@ exact supplied UUID and include at least two complete, structurally different mo
 an empty candidates list only when none of the observations supports even a testable hypothesis.
 """
 
+MALFORMED_RESULT_REPAIR_PROMPT = """
+
+THE RECOVERY RESPONSE WAS NOT VALID JSON OR DID NOT MATCH THE REQUIRED SCHEMA.
+This is the final structured-output repair attempt. Return JSON only, with no Markdown, commentary,
+trailing commas or unescaped line breaks. Return exactly one evidence-backed candidate with one
+exact supplied observation UUID and exactly two complete online money_models. Keep every string
+short. If no observation supports a hypothesis, return exactly {"candidates":[]}.
+"""
+
 ONLINE_DELIVERY_MODELS = frozenset(
     {
         DeliveryModel.AI_AGENT_SERVICE,
@@ -166,10 +175,21 @@ class OpportunityScout:
             opportunities = self._opportunities(envelope, observation_map)
             if opportunities:
                 return opportunities
-        envelope = self._request(
-            system=system_prompt + EMPTY_RESULT_RETRY_PROMPT,
-            user=user_prompt,
-        )
+        try:
+            envelope = self._request(
+                system=system_prompt + EMPTY_RESULT_RETRY_PROMPT,
+                user=user_prompt,
+            )
+        except (ModelResponseError, ValidationError):
+            try:
+                envelope = self._request(
+                    system=system_prompt + MALFORMED_RESULT_REPAIR_PROMPT,
+                    user=user_prompt,
+                )
+            except (ModelResponseError, ValidationError):
+                # The observations stay pending. A later bounded wake can retry them without
+                # turning a model formatting failure into either a lost signal or a fake idea.
+                return []
         return self._opportunities(envelope, observation_map)
 
     def _opportunities(

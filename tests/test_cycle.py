@@ -140,6 +140,65 @@ def test_invalid_scout_schema_gets_one_structured_recovery_pass(tmp_path) -> Non
     assert report.candidates_evaluated == 1
 
 
+def test_malformed_recovery_gets_one_final_compact_json_repair(tmp_path) -> None:
+    engine = HelisEngine(HelisStore(tmp_path / "helis.db"))
+    observation = engine.observe(
+        Observation(text="Teams repeatedly assemble customer reports manually.", source="fixture")
+    )
+    provider = QueueProvider(
+        [
+            {"candidates": []},
+            '{"candidates": [broken}',
+            {
+                "candidates": [
+                    {
+                        "title": "Reporting workflow",
+                        "problem": "Teams repeatedly assemble customer reports manually.",
+                        "customer": "service teams",
+                        "proposed_value": "Reduce repetitive reporting work.",
+                        "supporting_observation_ids": [str(observation.id)],
+                    }
+                ]
+            },
+            {"dimensions": {}, "rationale": [], "uncertainties": []},
+        ]
+    )
+
+    report = HelisCycle(
+        engine,
+        provider,
+        CycleBudget(max_model_calls=4, max_tokens=1000),
+    ).run()
+
+    assert provider.calls == 4
+    assert report.candidates_discovered == 1
+    assert report.candidates_evaluated == 1
+
+
+def test_repeated_malformed_scout_output_fails_closed_and_keeps_observation(tmp_path) -> None:
+    engine = HelisEngine(HelisStore(tmp_path / "helis.db"))
+    observation = engine.observe(
+        Observation(text="A customer describes a recurring manual workflow.", source="fixture")
+    )
+    provider = QueueProvider(
+        [
+            '{"candidates": [broken}',
+            '{"candidates": [still-broken}',
+            '{"candidates": [broken-again}',
+        ]
+    )
+
+    report = HelisCycle(
+        engine,
+        provider,
+        CycleBudget(max_model_calls=3, max_tokens=1000),
+    ).run()
+
+    assert provider.calls == 3
+    assert report.candidates_discovered == 0
+    assert [item.id for item in engine.store.list_unprocessed_observations()] == [observation.id]
+
+
 def test_cycle_replays_processed_history_when_no_idea_exists(tmp_path) -> None:
     engine = HelisEngine(HelisStore(tmp_path / "helis.db"))
     observation = engine.observe(
