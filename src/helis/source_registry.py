@@ -25,6 +25,8 @@ class SourceSpec(BaseModel):
     enabled: bool = True
     limit: int = Field(default=30, ge=1, le=500)
     feed: str = "ask"
+    comments_per_story: int = Field(default=2, ge=0, le=10)
+    comment_limit: int = Field(default=40, ge=0, le=500)
     url: str = ""
     repository: str = ""
     state: str = "open"
@@ -100,7 +102,12 @@ class SourceRegistry:
     @staticmethod
     def _build(spec: SourceSpec) -> ObservationSource:
         if spec.kind == SourceKind.HACKER_NEWS:
-            return HackerNewsSource(feed=spec.feed, limit=spec.limit)
+            return HackerNewsSource(
+                feed=spec.feed,
+                limit=spec.limit,
+                comments_per_story=spec.comments_per_story,
+                comment_limit=spec.comment_limit,
+            )
         if spec.kind == SourceKind.RSS:
             return RSSSource(url=spec.url, limit=spec.limit)
         if spec.kind == SourceKind.GITHUB_ISSUES:

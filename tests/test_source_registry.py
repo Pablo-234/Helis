@@ -21,6 +21,8 @@ name = "Ask HN"
 kind = "hacker_news"
 feed = "ask"
 limit = 12
+comments_per_story = 3
+comment_limit = 18
 
 [[sources]]
 name = "Disabled feed"
@@ -35,7 +37,23 @@ enabled = false
 
     assert len(registry.config.sources) == 2
     assert registry.config.sources[0].limit == 12
+    assert registry.config.sources[0].comments_per_story == 3
+    assert registry.config.sources[0].comment_limit == 18
     assert registry.config.sources[1].enabled is False
+
+
+def test_hacker_news_discussion_limits_have_bounded_defaults() -> None:
+    source = SourceSpec(name="Ask HN", kind=SourceKind.HACKER_NEWS)
+
+    assert source.comments_per_story == 2
+    assert source.comment_limit == 40
+
+    with pytest.raises(ValueError):
+        SourceSpec(
+            name="unbounded HN",
+            kind=SourceKind.HACKER_NEWS,
+            comments_per_story=11,
+        )
 
 
 def test_empty_config_is_valid() -> None:

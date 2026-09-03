@@ -300,7 +300,11 @@ focused batches of 20 and evaluates at most two newly generated venture models p
 wakes resume the remaining durable backlog. This keeps local 9B inference inside the lease instead
 of forcing one oversized prompt. More frequent host invocations provide crash recovery after an
 expired lease without multiplying normal source traffic. Source adapters are isolated individually;
-one failing feed is recorded while healthy sources can still contribute observations.
+one failing feed is recorded while healthy sources can still contribute observations. Each Hacker
+News source also captures a bounded number of top-level discussion comments as separate,
+source-linked observations. `comments_per_story` limits discussion reads per story and
+`comment_limit` caps them across the whole source scan; either can be set to zero to disable them.
+One missing item is skipped without discarding the rest of that feed.
 
 After scanning, HELIS always invokes one bounded resumable `HelisCycle`. This matters after a crash:
 existing unprocessed observations or a pending discovered/evaluated venture can continue even when

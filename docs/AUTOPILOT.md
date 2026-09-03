@@ -14,6 +14,7 @@ helis-autopilot run
 Defaults:
 
 - reads public sources from `helis.toml`,
+- treats bounded Hacker News discussion comments as separate evidence signals by default,
 - uses the model configured by `HELIS_LLM_BASE_URL` / `HELIS_LLM_MODEL`,
 - autonomous cash treasury is `0`,
 - allocates bounded model-call capacity across the strongest ventures,
